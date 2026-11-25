@@ -1,0 +1,19 @@
+{
+  "kbRoot": "knowledge",
+  "dataDir": ".kb",
+  "memoryDir": "knowledge/memory",
+  "maxPageBytes": 12000,
+  "targetPageBytes": 8000,
+  "maxBulletsPerSection": 40,
+  "maxDepth": 4,
+  "backlinks": true,
+  "layout": "multi",
+  "minPromptCharsForRecall": 4,
+  "minConclusionConfidence": "medium",
+  "minConclusionChars": 8,
+  "memoryCharLimit": 4000,
+  "userCharLimit": 2000,
+  "injectMemory": true,
+  "memoryPressureThreshold": 0.85,
+  "harnesses": ["claude-code", "codex", "qoder", "workbuddy", "trae", "dsh"]
+}

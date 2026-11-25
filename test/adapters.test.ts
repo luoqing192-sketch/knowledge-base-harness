@@ -1,0 +1,195 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { ADAPTERS, getAdapter } from '../src/adapters/index.js';
+import { applyArtifact, hasMarker, removeArtifact } from '../src/adapters/apply.js';
+import { type AdapterContext } from '../src/adapters/types.js';
+import { sandbox, type Sandbox } from './helpers.js';
+import {
+  CLAUDE_CODE_PROMPT,
+  CLAUDE_CODE_SESSION_START,
+  CLAUDE_CODE_STOP,
+  CODEX_TURN_COMPLETE,
+  GENERIC_PROMPT,
+} from './fixtures.js';
+
+let sb: Sandbox;
+let ctx: AdapterContext;
+
+beforeEach(() => {
+  sb = sandbox();
+  ctx = {
+    projectRoot: sb.root,
+    repoDir: path.join(sb.root, 'repo'),
+    nodeBin: process.execPath,
+    cliEntry: path.join(sb.root, 'repo', 'dist', 'cli.js'),
+    kbRoot: sb.kbRoot,
+    dataDir: sb.dataDir,
+  };
+});
+
+afterEach(() => {
+  sb.cleanup();
+});
+
+describe('adapter registry', () => {
+  it('exposes every harness the task requires', () => {
+    const ids = ADAPTERS.map((a) => a.id);
+    for (const expected of ['claude-code', 'codex', 'qoder', 'workbuddy', 'trae', 'dsh']) {
+      expect(ids).toContain(expected);
+    }
+  });
+
+  it('rejects unknown harnesses with a helpful message', () => {
+    expect(() => getAdapter('nope')).toThrow(/unknown harness/);
+  });
+});
+
+describe('claude-code adapter', () => {
+  it('installs hooks and an MCP server', () => {
+    const artifacts = getAdapter('claude-code').artifacts(ctx, {});
+    for (const a of artifacts) applyArtifact(a);
+
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(sb.root, '.claude', 'settings.json'), 'utf8'),
+    ) as { hooks: Record<string, unknown[]> };
+    expect(Object.keys(settings.hooks).sort()).toEqual(
+      ['SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit'].sort(),
+    );
+
+    const mcp = JSON.parse(fs.readFileSync(path.join(sb.root, '.mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, { command: string; args: string[] }>;
+    };
+    expect(mcp.mcpServers.kb!.args).toEqual([ctx.cliEntry, 'mcp']);
+  });
+
+  it('never destroys a user hook entry on reinstall', () => {
+    const settingsPath = path.join(sb.root, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] },
+        permissions: { allow: ['Bash(ls)'] },
+      }),
+    );
+
+    for (const a of getAdapter('claude-code').artifacts(ctx, {})) applyArtifact(a);
+    for (const a of getAdapter('claude-code').artifacts(ctx, {})) applyArtifact(a);
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as {
+      hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> };
+      permissions: { allow: string[] };
+    };
+    const commands = settings.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command));
+    expect(commands).toContain('echo mine');
+    // Installed twice, but the kb hook appears exactly once.
+    expect(commands.filter((c) => c.includes('knowlege-base-harness') || c.includes('cli.js')).length).toBe(1);
+    expect(settings.permissions.allow).toEqual(['Bash(ls)']);
+  });
+
+  it('refuses to rewrite a settings file it cannot parse', () => {
+    const settingsPath = path.join(sb.root, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, '// jsonc with comments\n{ "a": 1 }');
+    const artifacts = getAdapter('claude-code').artifacts(ctx, {});
+    const applied = applyArtifact(artifacts[0]!);
+    expect(applied.action).toBe('unchanged');
+    expect(fs.readFileSync(settingsPath, 'utf8')).toContain('jsonc with comments');
+  });
+
+  it('parses documented payload shapes', () => {
+    const adapter = getAdapter('claude-code');
+    expect(adapter.parsePayload(CLAUDE_CODE_SESSION_START)?.kind).toBe('start');
+    const prompt = adapter.parsePayload(CLAUDE_CODE_PROMPT);
+    expect(prompt?.kind).toBe('prompt');
+    expect(prompt?.prompt).toContain('库存扣减');
+    expect(adapter.parsePayload(CLAUDE_CODE_STOP)?.kind).toBe('stop');
+    expect(adapter.parsePayload({ hook_event_name: 'PreToolUse' })).toBeNull();
+  });
+
+  it('emits additionalContext JSON for prompts', () => {
+    const adapter = getAdapter('claude-code');
+    const out = adapter.formatOutput(
+      { kind: 'prompt', harness: 'claude-code', cwd: '.', raw: {} },
+      { context: 'hello' },
+    );
+    const parsed = JSON.parse(out) as { hookSpecificOutput: { additionalContext: string } };
+    expect(parsed.hookSpecificOutput.additionalContext).toBe('hello');
+  });
+});
+
+describe('codex adapter', () => {
+  it('writes a TOML block wrapped in markers', () => {
+    const artifacts = getAdapter('codex').artifacts(ctx, { home: sb.root });
+    for (const a of artifacts) applyArtifact(a);
+    const toml = fs.readFileSync(path.join(sb.root, '.codex', 'config.toml'), 'utf8');
+    expect(toml).toContain('[mcp_servers.kb]');
+    expect(toml).toContain('>>> knowlege-base-harness >>>');
+    // Codex reads the global config; the project-level file is ignored.
+  });
+
+  it('replaces rather than duplicates the marker block on reinstall', () => {
+    for (let i = 0; i < 3; i++) {
+      for (const a of getAdapter('codex').artifacts(ctx, { home: sb.root })) applyArtifact(a);
+    }
+    const toml = fs.readFileSync(path.join(sb.root, '.codex', 'config.toml'), 'utf8');
+    expect(toml.match(/\[mcp_servers\.kb\]/g)).toHaveLength(1);
+    const agents = fs.readFileSync(path.join(sb.root, 'AGENTS.md'), 'utf8');
+    expect(agents.match(/## Knowledge base/g)).toHaveLength(1);
+  });
+
+  it('parses turn-complete notifications', () => {
+    expect(getAdapter('codex').parsePayload(CODEX_TURN_COMPLETE)?.kind).toBe('stop');
+  });
+});
+
+describe('instruction-only adapters', () => {
+  for (const id of ['qoder', 'workbuddy', 'trae'] as const) {
+    it(`${id} writes rules and a hook manifest`, () => {
+      const adapter = getAdapter(id);
+      for (const a of adapter.artifacts(ctx, {})) applyArtifact(a);
+      const rules = adapter.capabilities.rulesFile!;
+      expect(hasMarker(path.join(sb.root, rules))).toBe(true);
+      const manifest = path.join(sb.root, adapter.capabilities.mcp ? path.dirname(rules) : '.');
+      expect(fs.existsSync(manifest)).toBe(true);
+    });
+
+    it(`${id} parses a generic prompt payload`, () => {
+      const adapter = getAdapter(id);
+      const event = adapter.parsePayload({ ...GENERIC_PROMPT, kind: 'prompt' });
+      expect(event?.kind).toBe('prompt');
+      expect(event?.harness).toBe(id);
+    });
+  }
+});
+
+describe('dsh adapter', () => {
+  it('generates shell hook wrappers', () => {
+    for (const a of getAdapter('dsh').artifacts(ctx, {})) applyArtifact(a);
+    for (const event of ['start', 'prompt', 'stop', 'end']) {
+      const file = path.join(sb.root, '.dsh', 'hooks', `kb-${event}.sh`);
+      expect(fs.existsSync(file)).toBe(true);
+      expect(fs.readFileSync(file, 'utf8')).toContain(`hook dsh ${event}`);
+    }
+  });
+});
+
+describe('artifact removal', () => {
+  it('removes only the marker block', () => {
+    const file = path.join(sb.root, 'NOTES.md');
+    fs.writeFileSync(file, '# mine\n\nkeep me\n');
+    const artifact = {
+      path: file,
+      strategy: 'text-append' as const,
+      content: '<!-- >>> knowlege-base-harness >>> -->\nblock\n<!-- <<< knowlege-base-harness <<< -->\n',
+      marker: 'knowlege-base-harness',
+    };
+    applyArtifact(artifact);
+    expect(fs.readFileSync(file, 'utf8')).toContain('keep me');
+    expect(removeArtifact(file)).toBe(true);
+    const after = fs.readFileSync(file, 'utf8');
+    expect(after).toContain('keep me');
+    expect(after).not.toContain('knowlege-base-harness');
+  });
+});

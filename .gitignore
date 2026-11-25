@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+
+# runtime state: sessions, index cache, stats, locks, quarantine
+.kb/
+
+# a wiki created by running the tool in this repo is not part of the project
+knowledge/
+
+# the wiki itself is meant to be versioned; only local overrides are ignored
+kb.config.local.json

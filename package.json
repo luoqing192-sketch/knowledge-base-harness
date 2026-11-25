@@ -1,0 +1,30 @@
+{
+  "name": "knowlege-base-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal wiki-style knowledge base managed through agent-harness plugins (Claude Code / Codex / Qoder / WorkBuddy / Trae / dsh).",
+  "type": "module",
+  "bin": {
+    "kb": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "node scripts/demo.mjs",
+    "eval": "node scripts/eval.mjs && node scripts/eval-heldout.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
