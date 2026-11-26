@@ -510,7 +510,7 @@ usage: kb <command> [options]
   note "<fact>"        Record one settled conclusion
                        (--page <path> | --supersedes "<old text>")
   memory [memory|user] Show the always-injected memory
-                       (--add "<text>" | --remove "<text>" | --patch "<old>= > <new>")
+                       (--add "<text>" | --remove "<text>" | --patch "<old>=> <new>")
   summary              Distil the session that just ended (--dry-run)
   compress [page]      Compress pages over the size budget
   evolve               Promotion / supersession / decay pass (--min-occurrences, --cold-after-days)

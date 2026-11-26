@@ -188,7 +188,7 @@ export class KbEngine {
     const body = this.memory.renderForPrompt();
     if (body === '') return '';
     const warning = usage.pressure >= this.cfg.memoryPressureThreshold
-      ? '\n\n> Memory is nearly full — prune stale entries with `kb memory remove --target memory --old "<text>"` before adding more.'
+      ? '\n\n> Memory is nearly full — prune stale entries with `kb memory memory --remove "<text>"` before adding more.'
       : '';
     return body + warning;
   }
