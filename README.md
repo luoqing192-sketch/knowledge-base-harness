@@ -26,35 +26,41 @@
         [evolve] 归纳打法(playbook) / 冷页面报告
 ```
 
-## 两层结构
+## 三层注入
 
-借鉴 Hermes 的分层：**常驻的东西必须小，大的东西必须按需**。
+借鉴 Hermes 的分层：**常驻的东西必须小，大的东西必须按需**，介于两者之间的只报名字。
 
-| | `memory/MEMORY.md` / `memory/USER.md` | 主题页面树 |
-|---|---|---|
-| 何时进上下文 | **每一轮都全量注入** | 命中提问才注入片段 |
-| 上限 | **4000 / 2000 字符**（硬约束，超了拒绝写入） | 单页 12 KB，超了自动压缩 |
-| 放什么 | 环境怪癖、约定、用户画像、沟通偏好 | 具体结论、踩坑、打法 |
-| 检索 | **不参与检索**（已经在上下文里，再召回等于花两次钱） | 词法召回 |
-| 写入 | `kb_memory` / `kb memory --add` | `kb_note` / `kb_note` MCP 工具 |
+| | `memory/MEMORY.md` / `memory/USER.md` | 高相关页面 | 其余命中页面 | 主题页面树 |
+|---|---|---|---|---|
+| 何时进上下文 | **每一轮都全量注入** | 命中提问，注入片段 | 命中提问，**只给标题+摘要** | 按路径 / MCP 主动查 |
+| 成本 | 4000 / 2000 字符硬上限 | ~200 字符/条 | ~40 字符/条 | 按需 |
+| 上限 | 超预算**拒绝写入** | 默认 2 条 | 默认 4 条 | 单页 12 KB，超了自动压缩 |
+| 放什么 | 环境怪癖、约定、用户画像、沟通偏好 | 最相关的具体结论 | 可能相关，先让 agent 知道它存在 | 具体结论、踩坑、打法 |
+| 检索 | **不参与检索**（已经在上下文里，再召回等于花两次钱） | 词法召回 | 词法召回 | `paths:` 文件路径命中 + MCP |
+
+第三层是从 Qoder 的 `model_decision` 规则学来的：**注入路由，不注入内容**。只有片段层和"完全不知道"两个状态时，注入器必须在「花 200 token 赌一个 maybe」和「对存在的页面保持沉默」之间二选一；把长尾缩成每行 40 字符的标题清单，两边都不用牺牲。
+
+`paths` 是页面自己声明的生效范围（`paths: ["src/api/**"]`），配合 `PostToolUse` 钩子——agent 打开 `src/api/handler.ts` 时，没说"api"也能收到那页的提示。同一会话内每页只提醒一次。
 
 超预算时的行为与 Hermes 一致：**整批原子校验**，返回当前条目和用量，让你「先删两条再加一条」一次提交。不会写一半。
+
+条目长大以后（变成一段流程而不是一句事实）会被 `kb promote-memory` 提议搬到页面——常驻层只该放一句事实，流程属于按需层。
 
 ## 支持哪些 harness
 
 | Harness | 钩子覆盖 | 配置文件位置 | 规则文件 | MCP |
 |---|---|---|---|---|
-| **Claude Code** | ✅ 全部四个（`SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`） | 项目 `.claude/settings.json` | `CLAUDE.md` | `.mcp.json` |
+| **Claude Code** | ✅ 六个（`SessionStart` / `UserPromptSubmit` / `PostToolUse` / `PreCompact` / `Stop` / `SessionEnd`） | 项目 `.claude/settings.json` | `CLAUDE.md` | `.mcp.json` |
+| **Qoder** | ✅ 六个（同上，契约与 Claude Code 基本一致） | 项目 `.qoder/settings.json` | `.qoder/rules/*.md` | `.mcp.json` |
 | **Codex CLI** | ⚠️ 只有 `notify`（回合结束） | **全局** `$CODEX_HOME/config.toml` | `AGENTS.md` | 同左 |
-| **Qoder** | ⚠️ 无公开钩子契约 | 项目 `.qoder/` | `.qoder/rules/*.md` | `.mcp.json` |
-| **WorkBuddy** | ⚠️ 同上 | 项目 `.workbuddy/` | `WORKBUDDY.md` | `.mcp.json` |
+| **WorkBuddy** | ⚠️ 无公开钩子契约 | 项目 `.workbuddy/` | `WORKBUDDY.md` | `.mcp.json` |
 | **Trae** | ⚠️ 同上 | 项目 `.trae/` | `.trae/rules/*.md` | `.trae/mcp.json` |
 | **dsh** | ⚠️ shell 钩子 | 项目 `.dsh/hooks/kb-*.sh` | `DSH.md` | — |
 | **generic** | — | 项目 `.kb/` | `AGENTS.md` | `.mcp.json` |
 
-> 已实测核对：**Claude Code**（2.1.332，四个钩子 + `additionalContext` 注入生效）与 **Codex CLI**（0.163.0，`notify` 必须是顶层 key、项目级配置被忽略）。其余五个仍是 `verified: false`——**只写有依据的键**：必需的规则文件，加上该 harness 有文档的 MCP 配置；钩子命令写在自己的 manifest / `.sh` 里，等语法对上时直接接线。安装时会打印提示，不会假装已经生效。
+> 已按官方文档核对：**Claude Code**（hooks 文档：`PostToolUse` 接受 `additionalContext`、`PreCompact` 的 stdout 是给摘要的指令所以不能打印）与 **Qoder CLI**（hooks 参考：事件名、stdin 字段、`hookSpecificOutput` 与 Claude Code 同构）与 **Codex CLI**（0.163.0，`notify` 必须是顶层 key、项目级配置被忽略）。其余四个仍是 `verified: false`——**只写有依据的键**：必需的规则文件，加上该 harness 有文档的 MCP 配置；钩子命令写在自己的 manifest / `.sh` 里，等语法对上时直接接线。
 
-**核心行为全部在引擎里，不在适配器里**：适配器只负责把各家事件体翻译成 `start / prompt / stop / end / note` 五种事件，行为不会在六个集成分支间漂移。
+**核心行为全部在引擎里，不在适配器里**：适配器只负责把各家事件体翻译成 `start / prompt / file / compact / stop / end / note` 七种事件，行为不会在七个集成分支间漂移。
 
 ## 安装
 
@@ -86,15 +92,25 @@ node /path/to/knowledge-base-harness/dist/cli.js init
 ```json
 {
   "hooks": {
-    "SessionStart":      [{ "matcher": "startup|resume|clear", "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code start" }] }],
-    "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code prompt" }] }],
-    "Stop":              [{ "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code stop" }] }],
-    "SessionEnd":        [{ "matcher": "clear|logout|prompt_input_exit|other", "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code end" }] }]
+    "SessionStart":      [{ "matcher": "startup|resume|clear|compact",     "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code start" }] }],
+    "UserPromptSubmit":  [{                                                 "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code prompt" }] }],
+    "PostToolUse":       [{ "matcher": "Read|Write|Edit|MultiEdit",         "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code file" }] }],
+    "PreCompact":        [{                                                 "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code compact" }] }],
+    "Stop":              [{                                                 "hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code stop" }] }],
+    "SessionEnd":        [{ "matcher": "clear|logout|prompt_input_exit|other","hooks": [{ "type": "command", "command": "…/node …/cli.js hook claude-code end" }] }]
   }
 }
 ```
 
-`UserPromptSubmit` 的 stdout 会被注入上下文（`hookSpecificOutput.additionalContext`），这是召回真正生效的通道。装完重启 Claude Code 即可，`/hooks` 能看到这四条。
+`UserPromptSubmit` / `SessionStart` / `PostToolUse` 的 stdout 会被注入上下文（`hookSpecificOutput.additionalContext`），这是召回真正生效的通道。**`PreCompact` 是例外**：它的 stdout 会成为压缩摘要的指令，所以那条分支故意不输出任何东西，只做落盘。
+
+**Qoder** —— 契约与 Claude Code 基本同构（官方 hooks 文档逐项核对过），装到 `.qoder/settings.json`：
+
+```json
+{ "hooks": { "SessionStart": …, "UserPromptSubmit": …, "PostToolUse": …, "PreCompact": …, "Stop": …, "SessionEnd": … } }
+```
+
+六个事件名与 stdin 字段都和 Claude Code 一致，只是配置文件路径与合并层级不同（用户级 `~/.qoder/settings.json` → 项目 `.qoder/settings.json` → 本地 `.qoder/settings.local.json`，多层同名 hooks 都会触发）。所以这个适配器是 `verified: true`，不再是「只写规则文件、钩子靠自觉」。
 
 **Codex CLI** —— **认全局配置**，装到 `$CODEX_HOME/config.toml`（你的机器是 `D:\Program Files\codex\home\config.toml`），外加项目的 `AGENTS.md`：
 
@@ -163,7 +179,8 @@ dsh 没有 MCP，所以只有规则文件 + 钩子脚本。**首次使用必须�
 | `kb recall "<问题>"` | 检索（`--json`、`--limit N`） |
 | `kb note "<结论>"` | 手写一条结论（`--page`、`--supersedes "<旧文本>"`） |
 | `kb memory [memory\|user]` | 常驻记忆读写（`--add` / `--remove` / `--patch "<旧>=> <新>"`，可重复） |
-| `kb summary` | 结束当前会话并沉淀（`--dry-run` 只看不写） |
+| `kb summary` | 结束当前会话并沉淀（`--dry-run` 只看不写；`--flush` 只沉淀不结束会话） |
+| `kb promote-memory` | 把长大成流程的记忆条目搬到页面（默认 **dry run**，`--apply` 才写） |
 | `kb compress [page]` | 压缩超预算页面 |
 | `kb evolve` | 归纳 playbook / 冷却页报告 |
 | `kb curate [--apply]` | 把窄页面合并成大页（默认 **dry run**，`--apply` 才写） |
@@ -171,8 +188,8 @@ dsh 没有 MCP，所以只有规则文件 + 钩子脚本。**首次使用必须�
 | `kb stats` | 每页被召回/采纳次数 |
 | `kb tree` | 打印 wiki 树 |
 | `kb doctor [--fix]` | 结构体检；`--fix` 隔离非 md 文件、重建索引 |
-| `kb mcp` | stdio MCP 服务（`kb_query` / `kb_read` / `kb_note` / `kb_memory` / `kb_tree`） |
-| `kb hook <harness> <event>` | hook 入口，stdin 读事件体（内部命令） |
+| `kb mcp` | stdio MCP 服务（`kb_query` / `kb_index` / `kb_read` / `kb_note` / `kb_memory` / `kb_tree`） |
+| `kb hook <harness> <event>` | hook 入口，stdin 读事件体（内部命令；事件为 `start/prompt/file/compact/stop/end/note`） |
 
 ## 五条硬约束怎么落地
 
@@ -204,6 +221,7 @@ dsh 没有 MCP，所以只有规则文件 + 钩子脚本。**首次使用必须�
 - **提升为打法（promotion）**：同一条**操作性**结论在两个以上页面重复 → 自动沉淀到 `playbooks/<theme>.md`，形成有序步骤，并在来源页 `## 相关` 回链
 - **取代而非覆盖（supersession）**：两条路径——agent 显式声明 `supersedes`（权威），或启发式识别「同主题 + 异判断」。旧条目打删除线留痕，绝不删
 - **衰减报告（decay）**：冷页面只报告不删除
+- **记忆晋升（`kb promote-memory`）**：记忆条目长成流程后搬到页面，腾出常驻预算——方向与 promotion 相反，是「常驻 → 按需」
 - **总括合并（curation，`kb curate`）**：见下
 
 #### 总括合并怎么工作
@@ -269,14 +287,15 @@ src/
 │   ├── distill.ts         # 结论门控与蒸馏
 │   ├── router.ts          # 结论进入哪个页面 / 新建页面 / 显式取代
 │   ├── compress.ts        # 分级压缩与归档
-│   ├── evolve.ts          # 统计、提升、取代、衰减
+│   ├── evolve.ts          # 统计、提升、取代、衰减、记忆晋升
 │   ├── curator.ts         # 窄页面总括合并（规则聚类 + 可选模型接缝）
 │   ├── references.ts      # 细节降级：长文进 references/，主页面保持一屏
+│   ├── glob.ts            # `paths:` front matter 的路径路由（gitignore 风格）
 │   ├── transcript.ts      # 各家会话记录解析
 │   ├── session.ts         # 会话状态机
 │   ├── lint.ts            # 结构体检
 │   └── engine.ts          # 唯一编排入口
-├── adapters/              # 六家 harness 的安装与事件翻译
+├── adapters/              # 七家 harness 的安装与事件翻译
 └── mcp/                   # 依赖为零的 MCP server + 工具
 ```
 
@@ -284,7 +303,7 @@ src/
 
 ```bash
 npm run typecheck
-npm test          # 163 个用例
+npm test          # 189 个用例
 npm run eval      # 结论门控的精确率/召回率（两套标注集）
 npm run demo      # 端到端演示：真的走 CLI + hook
 ```
@@ -297,4 +316,6 @@ npm run demo      # 端到端演示：真的走 CLI + hook
 - **实时路径不调模型**。结论由 agent 自己通过 `kb_note` 提交（它手里有全量上下文），规则蒸馏只在 agent 没提交时兜底。hooks 全程零网络，所以 `/exit` 永远不会被一次超时挂住。
 - **合并默认规则聚类**。Hermes 的 curator 用 LLM 判断「这两个窄页面该并成什么语义上的宽主题」，并按内容把细节降级到 `references/`；我们的规则聚类只看目录/标签/文件名，语义合并走 `--complete` 这个可选接缝，且必须人工确认。
 - **还没有离线优化器**。Hermes 的 GEPA 会用真实会话记录建评测集、演化技能文本、过测试门禁再提 PR。我们只有统计反馈（`kb stats`）与门控评测（`npm run eval`）。
-- **未经核对的 harness 不假装支持**。Codex/Qoder/WorkBuddy/Trae/dsh 的规则文件与 MCP 注册是稳的，钩子语法需要你确认一次：`kb install <harness>` 会打印要核对的命令。
+- **未经核对的 harness 不假装支持**。WorkBuddy/Trae/dsh 的规则文件与 MCP 注册是稳的，钩子语法需要你确认一次：`kb install <harness>` 会打印要核对的命令。
+- **`paths` 匹配是近似的**。glob 只做 gitignore 风格的路由（`*` / `**` / `?`），项目根按「KB 目录的父目录」推断。路径召回错配的代价只是一行多余的标题，不是一次错误的结论。
+- **`PreCompact` 只沉淀「已经明说的」**。压缩前 flushing 时不读 transcript：中途的 transcript 还写着一半，读它容易把半句话当结论。它只把本会话里 `kb:` 声明过的结论落地，其余仍留给 Stop 时的完整蒸馏。

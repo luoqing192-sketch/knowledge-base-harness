@@ -107,12 +107,12 @@ kb.config.local.json
 kb install claude-code codex qoder workbuddy trae
 ```
 
-实跑输出（带上 dsh 共 19 个 artifact）：
+实跑输出（六个 harness，共 19 个 artifact）：
 
 ```
 Claude Code (claude-code)
   + .claude\settings.json (created)
-      Adds SessionStart / UserPromptSubmit / Stop / SessionEnd hooks.
+      Adds SessionStart / UserPromptSubmit / PostToolUse / PreCompact / Stop / SessionEnd hooks.
   + .mcp.json (created)
       Registers the kb MCP server for in-session recall/notes.
 
@@ -121,10 +121,16 @@ OpenAI Codex CLI (codex)
   + home\.codex\config.toml (created)
   + AGENTS.md (created)
 
-Qoder (qoder) — convention paths, verify before relying on it
-  + .qoder\knowledge-base-harness.hooks.json (created)
+Qoder (qoder)
+  + .qoder\settings.json (created)
+      Adds SessionStart / UserPromptSubmit / PostToolUse / PreCompact / Stop / SessionEnd hooks.
   = .mcp.json (already current)
   + .qoder\rules\knowledge-base.md (created)
+
+WorkBuddy (workbuddy) — convention paths, verify before relying on it
+  + .workbuddy\knowledge-base-harness.hooks.json (created)
+  = .mcp.json (already current)
+  + WORKBUDDY.md (created)
 
 …
 ```
@@ -133,20 +139,20 @@ Qoder (qoder) — convention paths, verify before relying on it
 
 **五个 agent 的能力差异（决定你的使用体感）**
 
-| harness | 自动注入召回 | 自动沉淀 | 需要你做什么 |
-|---|---|---|---|
-| Claude Code | ✅ `UserPromptSubmit` 钩子 | ✅ `Stop` / `SessionEnd` | 什么都不用做 |
-| Codex CLI | ⚠️ agent 自己调 `kb_query` | ✅ 回合结束 `notify` | 在 `AGENTS.md` 指令下它会主动查 |
-| Qoder | ⚠️ 规则文件驱动 agent 调 `kb_query` | ⚠️ 靠 agent 调 `kb_note` | 首次确认规则文件被加载 |
-| WorkBuddy | ⚠️ 同上 | ⚠️ 同上 | 首次确认 `WORKBUDDY.md` 被读 |
-| Trae | ⚠️ 同上 | ⚠️ 同上 | 首次确认 `.trae/rules/` 被加载 |
-| dsh | ✅ shell 钩子 `kb-prompt.sh` | ✅ `kb-stop.sh` / `kb-end.sh` | 首次手工跑一遍 `kb-prompt.sh` |
+| harness | 自动注入召回 | 按文件路径推送 | 自动沉淀 | 需要你做什么 |
+|---|---|---|---|---|
+| Claude Code | ✅ `UserPromptSubmit` 钩子 | ✅ `PostToolUse` 钩子 | ✅ `PreCompact` / `Stop` / `SessionEnd` | 什么都不用做 |
+| Qoder | ✅ `UserPromptSubmit` 钩子 | ✅ `PostToolUse` 钩子 | ✅ `PreCompact` / `Stop` / `SessionEnd` | 首次确认 `/memory` 与 `/hooks` 能看到条目 |
+| Codex CLI | ⚠️ agent 自己调 `kb_query` | ⚠️ 同上 | ✅ 回合结束 `notify` | 在 `AGENTS.md` 指令下它会主动查 |
+| WorkBuddy | ⚠️ 规则文件驱动 agent 调 `kb_query` | ⚠️ 同上 | ⚠️ 靠 agent 调 `kb_note` | 首次确认 `WORKBUDDY.md` 被读 |
+| Trae | ⚠️ 同上 | ⚠️ 同上 | ⚠️ 同上 | 首次确认 `.trae/rules/` 被加载 |
+| dsh | ✅ shell 钩子 `kb-prompt.sh` | ⚠️ 无文件钩子 | ✅ `kb-stop.sh` / `kb-end.sh` | 首次手工跑一遍 `kb-prompt.sh` |
 
-**「自动注入」与「靠 agent 自觉」的区别很重要**：前者是 harness 把文本塞进上下文，agent 一定看得到；后者是规则文件要求 agent 自己发起工具调用，模型可能忽略。所以后三种 harness 值得在第一次用完后回头 `kb recall "刚才的问题"` 确认召回真的发生了。
+**「自动注入」与「靠 agent 自觉」的区别很重要**：前者是 harness 把文本塞进上下文，agent 一定看得到；后者是规则文件要求 agent 自己发起工具调用，模型可能忽略。所以 WorkBuddy / Trae 值得在第一次用完后回头 `kb recall "刚才的问题"` 确认召回真的发生了。
 
 也可以逐个装。下面每节的「装了什么」都对应实际生成的文件。
 
-### 2.1 Claude Code　✅ 已实测（v2.1.332）
+### 2.1 Claude Code　✅ 已按官方文档核对（本机 v2.1.332）
 
 ```bash
 kb install claude-code
@@ -156,26 +162,35 @@ kb install claude-code
 
 | 文件 | 内容 |
 |---|---|
-| `.claude/settings.json` | 四个钩子（见下） |
+| `.claude/settings.json` | 六个钩子（见下） |
 | `.mcp.json` | kb MCP server |
 
-四个钩子（实跑生成原文，路径已缩略）：
+六个钩子（实跑生成原文，路径已缩略）：
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "matcher": "startup|resume|clear", "hooks": [{ "type": "command", "command": "\"C:\\Program Files\\nodejs\\node.exe\" …\\cli.js hook claude-code start", "timeout": 30 }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "\"…node.exe\" …\\cli.js hook claude-code prompt", "timeout": 30 }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "\"…node.exe\" …\\cli.js hook claude-code stop", "timeout": 30 }] }],
-    "SessionEnd": [{ "matcher": "clear|logout|prompt_input_exit|other", "hooks": [{ "type": "command", "command": "\"…node.exe\" …\\cli.js hook claude-code end", "timeout": 30 }] }]
+    "SessionStart":     [{ "matcher": "startup|resume|clear|compact",      "hooks": [{"type":"command","command":"…cli.js hook claude-code start","timeout":30}] }],
+    "UserPromptSubmit": [{                                                  "hooks": [{"type":"command","command":"…cli.js hook claude-code prompt","timeout":30}] }],
+    "PostToolUse":      [{ "matcher": "Read|Write|Edit|MultiEdit",          "hooks": [{"type":"command","command":"…cli.js hook claude-code file","timeout":30}] }],
+    "PreCompact":       [{                                                  "hooks": [{"type":"command","command":"…cli.js hook claude-code compact","timeout":30}] }],
+    "Stop":             [{                                                  "hooks": [{"type":"command","command":"…cli.js hook claude-code stop","timeout":30}] }],
+    "SessionEnd":       [{ "matcher": "clear|logout|prompt_input_exit|other","hooks": [{"type":"command","command":"…cli.js hook claude-code end","timeout":30}] }]
   }
 }
 ```
 
 **工作原理**
 
-- `UserPromptSubmit` 的 stdout 被 Claude Code 当作 `hookSpecificOutput.additionalContext` 注入对话——这是召回真正生效的通道
-- `Stop` / `SessionEnd` 触发蒸馏与沉淀，不向对话输出内容
+| 事件 | 这里做什么 | 输出到对话？ |
+|---|---|---|
+| `SessionStart` | 开会话 | ✅（记忆 + 召回） |
+| `UserPromptSubmit` | 三层注入：常驻记忆 / 片段 / 标题清单 | ✅ |
+| `PostToolUse`（`Read\|Write\|Edit`） | 按 `paths:` 推送该文件相关的知识页 | ✅（`PostToolUse` 的 `additionalContext`） |
+| `PreCompact` | **只落盘不输出**——把本会话已声明的结论写进 wiki，避免压缩丢证据 | ❌（stdout 会变成摘要指令） |
+| `Stop` / `SessionEnd` | 蒸馏 + 沉淀 + 演化 + 体检 | ❌ |
+
+> `PreCompact` 那条最容易踩坑：Claude Code 的 `PreCompact` stdout 是「给压缩摘要的指令」，不是注入的上下文。所以 `kb hook … compact` 分支一律静默，只写盘。
 
 **验证**
 
@@ -215,6 +230,36 @@ Read the full page with the kb tool before acting if a hit looks relevant.
 ```
 
 看到 `Long-term memory` 和 `Knowledge base hits` 两段就说明整条链路通了。
+
+**验按文件路径推送**（`PostToolUse`）：页面的 front matter 写 `paths: ["src/api/**"]`，agent 读/写 `src/api/handler.ts` 时不用在提问里提"api"也会收到提示。
+
+```bash
+node -e "require('fs').writeFileSync('f.json', JSON.stringify({hook_event_name:'PostToolUse',cwd:process.cwd(),tool_name:'Read',tool_input:{file_path:'src/api/handler.ts'}}))"
+kb hook claude-code file < f.json
+```
+
+实跑输出：
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"## Knowledge pages that apply to `api/handler.ts`\n\n- `api/handler.md` — API handler 约定: 统一错误结构，请求体必须过共享 schema\n\nRead one with the kb tool if it looks relevant; do not assume the summary is complete."}}
+```
+
+同一会话内同一页只提醒一次——第二次读 `src/api/other.ts` 时输出为空，这是设计如此，不是坏了。
+
+**验压缩前落盘**（`PreCompact`）：
+
+```bash
+node -e "require('fs').writeFileSync('c.json', JSON.stringify({hook_event_name:'PreCompact',cwd:process.cwd(),trigger:'auto'}))"
+KB_HOOK_VERBOSE=1 kb hook claude-code compact < c.json
+```
+
+实跑输出（`KB_HOOK_VERBOSE=1` 才打，正常静默）：
+
+```
+knowledge-base-harness: flush — settled 1 conclusion(s) into 1 page(s) before compaction
+```
+
+紧接着的 `Stop` 会报告 `no settled conclusions`——同一个结论不会被写两遍。
 
 **用户级安装**
 
@@ -283,7 +328,7 @@ codex mcp list | grep kb
 kb    C:\Program Files\nodejs\node.exe  …/cli.js mcp  KB_DATA_DIR=*****, KB_ROOT=*****  -  enabled
 ```
 
-### 2.3 Qoder　⚠️ 约定
+### 2.3 Qoder　✅ 已按官方 hooks 文档核对
 
 ```bash
 kb install qoder
@@ -293,23 +338,40 @@ kb install qoder
 
 | 文件 | 内容 |
 |---|---|
-| `.qoder/knowledge-base-harness.hooks.json` | 钩子命令清单（供手工接到 Qoder 的自动化设置） |
-| `.mcp.json` | kb MCP server |
-| `.qoder/rules/knowledge-base.md` | agent 指令（Qoder 会自动加载 `rules/` 下的 md） |
+| `.qoder/settings.json` | 六个钩子（与 Claude Code 同构） |
+| `.mcp.json` | kb MCP server（Qoder 的项目级 MCP 路径就是 `${project}/.mcp.json`） |
+| `.qoder/rules/knowledge-base.md` | agent 指令（无 frontmatter = `always_on`） |
 
-**生效路径**：Qoder 没有公开的钩子契约，所以召回与沉淀走 **MCP + 规则文件**：
+**为什么能装钩子**：Qoder CLI 的 hooks 参考文档给了完整契约——`settings.json` 下的 `hooks` 分组、`UserPromptSubmit` / `PostToolUse` / `PreCompact` 等事件、stdin 的 `hook_event_name` / `cwd` / `session_id` / `transcript_path`、以及 `hookSpecificOutput.additionalContext`。**与 Claude Code 逐项一致**，所以适配器直接复用同一套事件翻译。
 
-1. 规则文件告诉 agent「回答项目问题前先调 `kb_query`，定论后用 `kb_note` 记录」
-2. MCP 提供工具
+**装出来的 settings.json**（实跑原文）：
+
+```json
+{
+  "hooks": {
+    "SessionStart":     [{ "matcher": "startup|resume|clear|compact" }],
+    "UserPromptSubmit": [{}],
+    "PostToolUse":      [{ "matcher": "Read|Write|Edit|MultiEdit" }],
+    "PreCompact":       [{}],
+    "Stop":             [{}],
+    "SessionEnd":       [{ "matcher": "clear|logout|prompt_input_exit|other" }]
+  }
+}
+```
+
+（每条里是 `{"type":"command","command":"…cli.js hook qoder <事件>","timeout":30}`，省略了。）
 
 **验证**
 
 ```bash
-ls .qoder/rules/           # 应有 knowledge-base.md
-cat .mcp.json              # 应有 mcpServers.kb
+cat .qoder/settings.json      # 应有六个事件
+cat .mcp.json                 # 应有 mcpServers.kb
+# 在 Qoder 里跑：/hooks 应能看到六条；/memory 应能看到 rules/
 ```
 
-然后在 Qoder 里问一个项目问题，看它是否调用 `kb_query`。若没有，说明 Qoder 没加载 `rules/` 或没读 `.mcp.json`，把 `.qoder/knowledge-base-harness.hooks.json` 里的命令按 Qoder 当前版本文档接到其自动化配置中。
+Qoder 的配置是多层合并的（用户级 `~/.qoder/settings.json` → 项目 `.qoder/settings.json` → 本地 `.qoder/settings.local.json`），同名 hooks 都会触发，所以装在项目层不会覆盖你个人的钩子。
+
+> 注意：Qoder 只有在**可信文件夹**里才加载项目级配置（`security.folderTrust.enabled`，默认开）。如果钩子不生效，先确认这个项目被信任了。
 
 ### 2.4 WorkBuddy　⚠️ 约定
 
@@ -321,11 +383,11 @@ kb install workbuddy
 
 | 文件 | 内容 |
 |---|---|
-| `.workbuddy/knowledge-base-harness.hooks.json` | 钩子命令清单 |
+| `.workbuddy/knowledge-base-harness.hooks.json` | 钩子命令清单（无公开契约，需自行接线） |
 | `.mcp.json` | kb MCP server |
 | `WORKBUDDY.md`（项目根） | agent 指令 |
 
-**生效路径**：同 Qoder——规则文件 + MCP。
+**生效路径**：规则文件 + MCP。WorkBuddy 没有公开的 hooks 文档，所以钩子只写进自己的 manifest，不假装已经生效。
 
 **验证**：`cat WORKBUDDY.md` 应含 `## Personal knowledge base` 段；`.mcp.json` 应有 kb。
 
@@ -410,8 +472,8 @@ kb install --global claude-code codex qoder workbuddy trae dsh
 |---|---|
 | Claude Code | `~/.claude/settings.json` + `claude mcp add --scope user` |
 | Codex | `$CODEX_HOME/config.toml`（与项目级安装同一份，本来就是全局） |
-| Qoder | `~/.qoder/{knowledge-base-harness.hooks.json, mcp.json, rules/knowledge-base-harness.md}` |
-| WorkBuddy | `~/.workbuddy/{…同上}` |
+| Qoder | `~/.qoder/settings.json`（钩子 + `mcpServers.kb`）+ `~/.qoder/rules/knowledge-base.md` |
+| WorkBuddy | `~/.workbuddy/{knowledge-base-harness.hooks.json, mcp.json, rules/…}` |
 | Trae | `~/.trae/{…同上}` |
 | dsh | `~/.dsh/{knowledge-base-harness.hooks.json, rules/…, hooks/kb-*.sh}` |
 
@@ -504,7 +566,9 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol
 {"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"kb_query",…},…]}}
 ```
 
-5 个工具：`kb_query` / `kb_read` / `kb_note` / `kb_memory` / `kb_tree`。
+5 个工具：`kb_query` / `kb_index` / `kb_read` / `kb_note` / `kb_memory` / `kb_tree`（6 个）。
+
+> `kb_index` 只回标题+摘要，不读正文——想先知道「库里有什么」时用它，比 `kb_query` 便宜一半以上。
 
 > Windows 的 `cmd` 里没有 `printf`，用 Git Bash 或换成 `node -e` 拼 payload 文件。
 
@@ -580,10 +644,34 @@ updated p13maobz.md (+1, 0 duplicate, 597B), superseded 1
 | 场景 | agent 调用的工具 |
 |---|---|
 | 回答项目问题前 | `kb_query` |
+| 只想看库里有什么 | `kb_index`（标题+摘要，便宜） |
 | 需要看完整页面 | `kb_read` |
 | 拿到定论 | `kb_note`（可带 `supersedes`） |
 | 需要长期记住 | `kb_memory` |
 | 迷路时看结构 | `kb_tree` |
+
+### 4.4 让页面自己找上门（`paths:`）
+
+页面可以在 front matter 里声明生效范围：
+
+```yaml
+---
+id: api-handler
+title: API handler 约定
+summary: 统一错误结构，请求体必须过共享 schema
+paths: ["src/api/**", "**/*.schema.ts"]
+---
+```
+
+此后 agent 只要**读或改**匹配的文件，`PostToolUse` 钩子就会把这一页的标题+摘要推进上下文，不需要你在提问里提到 "api"。同一会话内每页只提醒一次。
+
+判断标准：**这一页只在动某些文件时才有用吗？** 是 → 加 `paths`；是通用背景 → 不加，让它走提问召回。
+
+`kb path-recall` 可以手工试匹配：
+
+```bash
+kb path-recall src/api/handler.ts     # 列出会命中哪些页面
+```
 
 ### 4.4 手工写页面、建目录
 
@@ -616,6 +704,7 @@ kb recall "刚写的那个问题"        # 确认能被召回
 | 每月 | `kb curate --apply` | 执行合并（源页面归档，不删除） |
 | 需要时 | `kb demote` / `kb demote --apply` | 把过长的「细节」段搬进 `references/` |
 | 需要时 | `kb compress` | 压缩超预算页面 |
+| 需要时 | `kb promote-memory` / `--apply` | 把长大成流程的记忆条目搬到页面，腾出常驻预算 |
 | 每季度 | `kb evolve` | 归纳 playbook、报告冷页面 |
 | 每季度 | `kb stats` | 看哪些页面真被用到 |
 
@@ -645,6 +734,30 @@ wes-mock-ess-on.md                          3        0       0  2026-11-26
 sso-30.md                                   2        0       0  2026-11-26
 ```
 
+### 5.1.1 记忆腾挪（`kb promote-memory`）
+
+常驻记忆是最贵的文本——每一轮都要为它付 token。一句事实值得；一段流程不值得。
+
+```bash
+$ kb promote-memory
+knowledge-base-harness: promote-memory — 1 entry(s) outgrew memory
+  would move [memory] 排查上架异常要先看 ESS 的 container 状态，再对照 WES 的 putaway 记录，最后确认库位是否被锁
+      reads like a procedure, not a fact
+  (dry run — re-run with --apply to write)
+
+$ kb promote-memory --apply
+knowledge-base-harness: promote-memory — 1 entry(s) outgrew memory
+  moved [memory] 排查上架异常要先看 ESS 的 container 状态，再对照 WES 的 putaway 记录，最后确认库位是否被锁
+      reads like a procedure, not a fact → ess-container.md
+```
+
+判定标准两条，任一命中即为候选：
+
+- **读起来像流程**（先/然后/步骤/执行/配置/部署…）——流程属于按需层
+- **超过 80 字符**——这么长已经不是一句事实了
+
+写入顺序是**先建页、再删记忆**：页面写失败时记忆还在，不会两头落空。
+
 ### 5.2 什么时候该做什么
 
 | 症状 | 处理 |
@@ -654,8 +767,9 @@ sso-30.md                                   2        0       0  2026-11-26
 | 某页越写越长，翻半天 | `kb demote <page> --apply` |
 | 页面超过 12 KB | `kb compress <page>` |
 | 结论互相矛盾 | 用 `--supersedes` 重写，不要直接删 |
-| 记忆快满了（>85%） | 注入块会提示，用 `kb memory memory --remove "<旧条目>"` 腾挪 |
+| 记忆快满了（>85%） | `kb promote-memory` 把长条目搬走；或 `kb memory memory --remove "<旧条目>"` |
 | 想删掉某页 | 手工删文件 + `kb doctor --fix` 重建索引 |
+| 某页只在改特定文件时有用 | 加 `paths: ["<glob>"]`，让它自己找上门 |
 
 ---
 
@@ -664,14 +778,14 @@ sso-30.md                                   2        0       0  2026-11-26
 **回滚到装之前**：所有写入都以 marker 块或独立文件存在，删掉即可。
 
 ```bash
-# Claude Code
-# 删除 .claude/settings.json 中 marker 块内的 4 条钩子，删除 .mcp.json 中的 kb
+# Claude Code / Qoder
+# 删除 settings.json 中 marker 块内的钩子条目，删除 .mcp.json 中的 kb
 
 # Codex
 # 删除 $CODEX_HOME/config.toml 中 >>> ... <<< 之间的块
 
 # 其他
-rm -rf .qoder .workbuddy .trae .dsh WORKBUDDY.md DSH.md
+rm -rf .workbuddy .trae .dsh WORKBUDDY.md DSH.md
 ```
 
 用户级安装的清理：
@@ -700,9 +814,10 @@ node <仓库>/dist/cli.js install claude-code
 
 | 检查 | 命令 |
 |---|---|
-| 钩子在不在 | Claude Code 里 `/hooks` |
+| 钩子在不在 | Claude Code / Qoder 里 `/hooks`（Qoder 也可 `cat .qoder/settings.json`） |
 | 命令能不能跑 | 复制 `settings.json` 里的 command，手工执行一次 |
 | 实际报错 | 设环境变量 `KB_HOOK_VERBOSE=1`，stderr 会打堆栈 |
+| Qoder 项目级配置被忽略 | 确认该文件夹已信任（`security.folderTrust.enabled`） |
 
 **设计上钩子失败不影响你的会话**：`cmdHook` 捕获所有异常，只在 `KB_HOOK_VERBOSE=1` 时才输出。
 
@@ -715,9 +830,21 @@ kb recall "你的问题" --json      # 看每页得分
 ```
 
 - 都是 0 分 → 知识库里确实没有相关内容，属正常
-- 有分数但没注入 → 检查 `minScore`（默认 0.01），或页面被 `_archive/` 排除
+- 有分数但没注入 → 检查 `minScore`（默认 0.01）、`snippetHitCount`（默认只给前 2 条正文），或页面被 `_archive/` 排除
+- 只有标题清单没有正文 → 那是第三层注入，正常；说明这几页相关度不够高，agent 可以自己 `kb_read`
 
-### 7.4 装了两次钩子，触发两遍
+### 7.4 `paths:` 推送没反应
+
+```bash
+kb path-recall src/api/handler.ts     # 手工试匹配
+```
+
+- 输出"No page routes" → glob 没命中，或那页没写 `paths`
+- 有输出但钩子没触发 → 确认装了新版本（`PostToolUse` 是后加的），重新 `kb install`
+
+项目根按「KB 目录的父目录」推断。知识库不在项目根下的 `knowledge/` 时，glob 会对不上——要么把 KB 放回默认位置，要么用相对项目根的路径写 `paths`。
+
+### 7.5 装了两次钩子，触发两遍
 
 marker 名变了（例如从旧名 `knowlege-base-harness` 升级过来）会导致新旧两个块并存。定位并手工删掉旧的：
 
@@ -725,7 +852,7 @@ marker 名变了（例如从旧名 `knowlege-base-harness` 升级过来）会导
 grep -rn ">>> knowlege-base-harness >>>" .claude ~/.claude "$CODEX_HOME" 2>/dev/null
 ```
 
-### 7.5 MCP 显示 `✘ Failed to connect`
+### 7.6 MCP 显示 `✘ Failed to connect`
 
 ```bash
 # 手工验一次（Git Bash / PowerShell 都可）
@@ -736,7 +863,7 @@ grep -rn ">>> knowlege-base-harness >>>" .claude ~/.claude "$CODEX_HOME" 2>/dev/
 
 > 直接敲 `kb mcp` 不带输入会一直阻塞等 stdin，看起来像卡死，`Ctrl+C` 退出即可——这是 MCP stdio 的正常行为。
 
-### 7.6 Windows 反斜杠丢失
+### 7.7 Windows 反斜杠丢失
 
 `claude mcp add` 会吞掉参数里的反斜杠（`D:\a\b` → `D:ab`）。用正斜杠：
 
@@ -746,7 +873,7 @@ claude mcp add --scope user kb -e 'KB_ROOT=D:/proj/knowledge' -- node D:/proj/cl
 
 本工具的 `--global` 安装已经自动转成正斜杠。
 
-### 7.7 会话结束后什么都没写
+### 7.8 会话结束后什么都没写
 
 正常行为——**没有定论就不写**。看报告：
 
@@ -774,10 +901,12 @@ kb recall "…"
 # 日常
 echo "kb: 结论…"                    # 会话里直接说
 kb memory memory --add "…"          # 每轮都要的事实
+kb path-recall src/api/x.ts         # 这个文件会命中哪些知识页
 
 # 维护（全部默认 dry run）
 kb curate [--apply]
 kb demote [page] [--apply]
+kb promote-memory [--apply]         # 记忆里长成流程的条目搬到页面
 kb compress [page]
 kb evolve
 kb stats
