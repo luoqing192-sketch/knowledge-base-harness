@@ -42,6 +42,15 @@ export interface DocFrontmatter {
    * be detected instead of discovered by accident.
    */
   derivedFrom?: string;
+  /**
+   * Glob patterns (relative to the project root) this page applies to.
+   *
+   * Borrowed from the rule files Qoder and Cursor use: a page that only matters
+   * while editing `src/api/**` says so, and the file-access hook pushes it when
+   * the agent touches a matching file instead of waiting for the prompt to
+   * mention it.
+   */
+  paths?: string[];
 }
 
 export interface Section {
@@ -118,6 +127,11 @@ export interface SessionState {
   notes: Conclusion[];
   /** Docs touched by this session, used for the end-of-session report. */
   touched: string[];
+  /**
+   * Pages already pushed by the file-access hook. Kept per session so a model
+   * that reads the same file five times is told about its knowledge page once.
+   */
+  announced?: string[];
   status: 'active' | 'ended';
 }
 

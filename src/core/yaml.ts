@@ -130,6 +130,7 @@ const KEY_ORDER = [
   'confidence',
   'absorbedInto',
   'derivedFrom',
+  'paths',
 ];
 
 export function stringifyYaml(map: YamlMap): string {

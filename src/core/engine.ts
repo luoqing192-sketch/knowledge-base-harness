@@ -15,7 +15,7 @@ import { KbConfig, loadConfig } from './config.js';
 import { KbStore } from './store.js';
 import { SessionStore } from './session.js';
 import { MemoryStore } from './memory.js';
-import { recall, renderRecall } from './recall.js';
+import { recall, recallByPath, renderIndex, renderRecall, tierHits } from './recall.js';
 import { distillTranscript, extractExplicitNotes, judgeConclusion } from './distill.js';
 import { applyRoutedConclusions, routeConclusions, type RoutedConclusion } from './router.js';import { compressAll, compressPage } from './compress.js';
 
@@ -39,6 +39,7 @@ import {
   StatsStore,
   evolveAfterSession,
   findDecayingPages,
+  findPromotableMemory,
   recordRecall,
   renderEvolutionReport,
   type EvolutionReport,
@@ -160,8 +161,12 @@ export class KbEngine {
       });
     }
 
-    const hits = recall(this.store, text, { limit: 5 });
-    const recallBlock = renderRecall(hits, { maxChars: 3500 });
+    // Retrieve enough for both tiers in one pass; a second call would re-score
+    // the whole index for nothing.
+    const hits = recall(this.store, text, {
+      limit: Math.max(5, this.cfg.snippetHitCount + this.cfg.indexHitCount),
+    });
+    const recallBlock = renderTieredHits(hits, this.cfg);
     const context = [memoryBlock, recallBlock].filter((b) => b !== '').join('\n\n');
 
     if (hits.length > 0) {
@@ -307,20 +312,8 @@ export class KbEngine {
       candidates.push({ text: extra, source: 'agent', confidence: verdict.confidence, at: isoNow() });
     }
 
-    const accepted: Conclusion[] = [];
-    const seen = new Set<string>();
-    const rank: Record<Conclusion['confidence'], number> = { low: 0, medium: 1, high: 2 };
-    const floor = rank[this.cfg.minConclusionConfidence];
-    for (const c of candidates) {
-      const key = c.text.toLowerCase().replace(/\s+/g, ' ').trim();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (rank[c.confidence] < floor) {
-        dropped.push({ text: c.text, reason: `confidence ${c.confidence} below threshold` });
-        continue;
-      }
-      accepted.push(c);
-    }
+    const { accepted, dropped: filteredOut } = this.filterAccepted(candidates);
+    dropped.push(...filteredOut);
 
     let summary: UpsertSummary | null = null;
     let evolution: EvolutionReport | null = null;
@@ -383,6 +376,90 @@ export class KbEngine {
     return { sessionId, concluded: accepted, dropped, summary, report, lintErrors: errors, evolution };
   }
 
+  /**
+   * Settle what the session has concluded so far, without ending it.
+   *
+   * Fired by `PreCompact` (and available as `kb summary --flush`). Compaction is
+   * when a long session starts discarding the detail that distillation needs, so
+   * waiting for SessionEnd can lose the evidence. The session stays active and
+   * its pending notes/prompts are cleared, so the eventual end-of-session pass
+   * only sees what came after this point — no double writing.
+   */
+  flushSession(): {
+    written: UpsertSummary | null;
+    kept: number;
+    text: string;
+  } {
+    this.init();
+    const state = this.sessions.mutate(() => {
+      const id = this.sessions.activeId();
+      return id ? this.sessions.load(id) : null;
+    });
+    if (!state) return { written: null, kept: 0, text: 'no active session to flush' };
+
+    const candidates: Conclusion[] = [...state.notes];
+    for (const prompt of state.prompts) {
+      for (const n of extractExplicitNotes(prompt.text)) {
+        candidates.push({
+          text: n.text,
+          source: 'note',
+          confidence: n.confidence,
+          at: prompt.at,
+          ...(n.evidence ? { evidence: n.evidence } : {}),
+        });
+      }
+    }
+    // The transcript is deliberately NOT read here: mid-session it is half
+    // written, and the Stop hook will distil it properly later.
+
+    const accepted = this.filterAccepted(candidates).accepted;
+    let written: UpsertSummary | null = null;
+    if (accepted.length > 0) {
+      written = applyRoutedConclusions(this.store, routeConclusions(this.store, accepted));
+      for (const r of written.results) this.stats.bump(r.path, 'writes');
+      this.stats.save();
+    }
+
+    this.sessions.mutate(() => {
+      // Keep `touched` (it is a report of the whole session) but drop the
+      // pending material we just settled, so the Stop hook does not redo it.
+      state.notes = [];
+      state.prompts = [];
+      this.sessions.save(state);
+    });
+
+    const text =
+      accepted.length === 0
+        ? 'knowledge-base-harness: flush — nothing settled yet'
+        : `knowledge-base-harness: flush — settled ${accepted.length} conclusion(s) into ${
+            written?.pagesTouched.length ?? 0
+          } page(s) before compaction`;
+    return { written, kept: accepted.length, text };
+  }
+
+  /** Confidence floor + dedupe, shared by end-of-session and mid-session flush. */
+  private filterAccepted(candidates: Conclusion[]): {
+    accepted: Conclusion[];
+    dropped: Array<{ text: string; reason: string }>;
+  } {
+    const accepted: Conclusion[] = [];
+    const dropped: Array<{ text: string; reason: string }> = [];
+    const seen = new Set<string>();
+    const rank: Record<Conclusion['confidence'], number> = { low: 0, medium: 1, high: 2 };
+    const floor = rank[this.cfg.minConclusionConfidence];
+    for (const c of candidates) {
+      const key = c.text.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (rank[c.confidence] < floor) {
+        dropped.push({ text: c.text, reason: `confidence ${c.confidence} below threshold` });
+        continue;
+      }
+      accepted.push(c);
+    }
+    return { accepted, dropped };
+  }
+
   // -------------------------------------------------------------- utilities
 
   recallQuery(query: string, limit = 6): { hits: RecallHit[]; context: string } {
@@ -391,7 +468,54 @@ export class KbEngine {
       recordRecall(this.stats, hits);
       this.stats.save();
     }
-    return { hits, context: renderRecall(hits) };
+    return { hits, context: renderTieredHits(hits, this.cfg) };
+  }
+
+  /** Which pages route to this file — the dry run for `paths:` front matter. */
+  pathRecall(filePath: string, limit = 8): RecallHit[] {
+    return recallByPath(this.store, filePath, { cwd: process.cwd(), limit });
+  }
+
+  /**
+   * Context for a file the agent just touched.
+   *
+   * Only pages that opted in via `paths:` front matter are returned, so a model
+   * reading forty files does not accumulate forty unrelated knowledge dumps. The
+   * same page is never announced twice in one session: that state lives in the
+   * session file, so it survives across separate hook processes.
+   */
+  onFileAccess(
+    harness: HarnessId,
+    filePath: string,
+    cwd: string,
+  ): { hits: RecallHit[]; context: string } {
+    this.init();
+    if (!this.cfg.pathRecall || filePath.trim() === '') return { hits: [], context: '' };
+
+    const hits = recallByPath(this.store, filePath, { cwd });
+    if (hits.length === 0) return { hits: [], context: '' };
+
+    const already = this.sessions.mutate(() => {
+      const session = this.sessions.ensureActive(harness, cwd);
+      const seen = new Set(session.announced ?? []);
+      const fresh = hits.filter((h) => !seen.has(h.path));
+      if (fresh.length > 0) {
+        session.announced = [...seen, ...fresh.map((h) => h.path)];
+        this.sessions.save(session);
+      }
+      return fresh;
+    });
+
+    if (already.length === 0) return { hits: [], context: '' };
+    recordRecall(this.stats, already);
+    this.stats.save();
+    return {
+      hits: already,
+      context: renderIndex(already, {
+        heading: `## Knowledge pages that apply to \`${shortPath(filePath)}\``,
+        maxChars: 1200,
+      }),
+    };
   }
 
   addManualConclusions(
@@ -470,6 +594,52 @@ export class KbEngine {
   /** Pages that are cold and unused — candidates for manual archiving. */
   stalePages(days = 120): Array<{ page: string; daysSinceRecall: number; weight: number }> {
     return findDecayingPages(this.store, this.stats, { coldAfterDays: days });
+  }
+
+  /**
+   * Move an oversized memory entry out of the always-injected store and onto a
+   * page, freeing its budget.
+   *
+   * Dry run by default. Applying is a two-step that can half-fail — page first,
+   * then memory — because writing the page is harmless if the removal then
+   * fails (the entry would simply appear in both places for one cycle), while
+   * removing first would lose the text outright.
+   */
+  promoteMemory(opts: { apply?: boolean; minChars?: number } = {}): {
+    candidates: ReturnType<typeof findPromotableMemory>;
+    promoted: Array<{ text: string; target: MemoryTarget; page: string }>;
+    text: string;
+  } {
+    this.init();
+    const candidates = findPromotableMemory(this.memory, opts.minChars ? { minChars: opts.minChars } : {});
+    const promoted: Array<{ text: string; target: MemoryTarget; page: string }> = [];
+
+    if (opts.apply) {
+      for (const c of candidates) {
+        const summary = this.addManualConclusions([c.text], undefined);
+        const page = summary.results[0]?.path;
+        if (!page) continue;
+        // The '\n' trim in memory.remove matches on normalised text, so the
+        // exact entry string is what we pass back.
+        const res = this.memory.apply(c.target, [{ action: 'remove', old_text: c.text }]);
+        if (!res.ok) continue;
+        promoted.push({ text: c.text, target: c.target, page });
+      }
+    }
+
+    const lines: string[] = [
+      `knowledge-base-harness: promote-memory — ${candidates.length} entry(s) outgrew memory`,
+    ];
+    if (candidates.length === 0) lines.push('  nothing to promote — memory holds short, durable facts');
+    for (const c of candidates) {
+      const done = promoted.find((p) => p.text === c.text);
+      lines.push(
+        `  ${done ? 'moved' : 'would move'} [${c.target}] ${truncate(c.text, 90)}`,
+      );
+      lines.push(`      ${c.reason}${done ? ` → ${done.page}` : ''}`);
+    }
+    if (!opts.apply && candidates.length > 0) lines.push('  (dry run — re-run with --apply to write)');
+    return { candidates, promoted, text: lines.join('\n') };
   }
 
   /**
@@ -582,6 +752,34 @@ export class KbEngine {
     }
     return lines.join('\n');
   }
+}
+
+/**
+ * Render prompt hits in two tiers: the best few with excerpts, the rest as
+ * title+summary lines.
+ *
+ * The tiering is the whole point. A single-tier injector must choose between
+ * "waste 200 tokens on a maybe" and "stay silent about a page that exists";
+ * announcing the long tail at ~40 tokens a line lets both sides win.
+ */
+function renderTieredHits(hits: RecallHit[], cfg: KbConfig): string {
+  if (hits.length === 0) return '';
+  const { detailed, outline } = tierHits(hits, cfg.snippetHitCount);
+  const head = detailed.length > 0 ? renderRecall(detailed, { maxChars: 3500 }) : '';
+  const tail =
+    outline.length > 0
+      ? renderIndex(outline.slice(0, cfg.indexHitCount), {
+          heading: '## Other pages that may be relevant',
+          maxChars: 1000,
+        })
+      : '';
+  return [head, tail].filter((b) => b !== '').join('\n\n');
+}
+
+/** Last two path segments, so a hook line stays readable in a narrow terminal. */
+function shortPath(p: string): string {
+  const segs = p.replace(/\\/g, '/').split('/').filter(Boolean);
+  return segs.slice(-2).join('/');
 }
 
 /**

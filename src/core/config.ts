@@ -40,6 +40,21 @@ export interface KbConfig {
   injectMemory: boolean;
   /** Warn when a store is this full, so the agent prunes before it is blocked. */
   memoryPressureThreshold: number;
+
+  /**
+   * Three-tier injection. The top `snippetHitCount` pages are injected with body
+   * excerpts; the next `indexHitCount` are injected as title+summary lines only,
+   * which costs a fraction of the tokens and still tells the agent a page exists.
+   * Set `snippetHitCount` to 0 to inject nothing but the outline.
+   */
+  snippetHitCount: number;
+  indexHitCount: number;
+  /**
+   * Push pages whose `paths:` front matter matches a file the agent just read or
+   * edited. Distinct from prompt recall: the agent may open a file without ever
+   * naming it in the prompt.
+   */
+  pathRecall: boolean;
 }
 
 export const DEFAULT_CONFIG: Omit<KbConfig, 'kbRoot' | 'dataDir' | 'memoryDir'> = {
@@ -57,6 +72,9 @@ export const DEFAULT_CONFIG: Omit<KbConfig, 'kbRoot' | 'dataDir' | 'memoryDir'> 
   userCharLimit: 2_000,
   injectMemory: true,
   memoryPressureThreshold: 0.85,
+  snippetHitCount: 2,
+  indexHitCount: 4,
+  pathRecall: true,
 };
 
 export const MEMORY_DIRNAME = 'memory';

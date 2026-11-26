@@ -1,6 +1,6 @@
 import { KbEngine } from '../core/engine.js';
 import { type ToolDefinition, textResult, type ToolResult } from './server.js';
-import { renderRecall } from '../core/recall.js';
+import { renderIndex, renderRecall } from '../core/recall.js';
 import { type MemoryOp, type MemoryTarget } from '../core/types.js';
 
 const MEMORY_DESCRIPTION = `Read or update the always-injected memory.
@@ -31,6 +31,18 @@ export const KB_TOOLS: ToolDefinition[] = [
         limit: { type: 'number', description: 'Max pages to return (default 5).' },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'kb_index',
+    description:
+      'List page titles and summaries for a topic without reading their bodies. Cheaper than kb_query: use it when you want to know what the knowledge base covers before deciding what to read.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Topic to survey. Omit for the whole tree.' },
+        limit: { type: 'number', description: 'Max pages to list (default 15).' },
+      },
     },
   },
   {
@@ -111,6 +123,17 @@ export async function callKbTool(
       const hits = engine.recallQuery(query, limit).hits;
       if (hits.length === 0) return textResult('No matching pages. The knowledge base has nothing on this yet.');
       return textResult(renderRecall(hits, { maxChars: 6000 }));
+    }
+    case 'kb_index': {
+      const query = typeof args['query'] === 'string' ? args['query'] : '';
+      const limit = typeof args['limit'] === 'number' ? args['limit'] : 15;
+      if (query.trim() === '') {
+        const tree = engine.tree();
+        return textResult(tree || '(empty knowledge base)');
+      }
+      const hits = engine.recallQuery(query, limit).hits;
+      if (hits.length === 0) return textResult('No matching pages.');
+      return textResult(renderIndex(hits, { maxChars: 4000, heading: '## Matching pages (titles and summaries)' }));
     }
     case 'kb_read': {
       const rel = String(args['path'] ?? '');

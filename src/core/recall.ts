@@ -3,6 +3,7 @@ import { type RecallHit, type RecallOptions } from './types.js';
 import { KbStore, type KbIndex } from './store.js';
 import { bigramContainment, collapseWhitespace, tokenize, truncate } from './text.js';
 import { bulletText } from './markdown.js';
+import { matchAnyGlob, matchGlob } from './glob.js';
 
 const SNIPPET_MAX = 220;
 
@@ -164,9 +165,110 @@ export function renderRecall(hits: RecallHit[], opts: { maxChars?: number } = {}
   return parts.join('\n');
 }
 
+/**
+ * One line per page: title, path, summary. No body excerpts.
+ *
+ * This is the third injection tier. A hit that is plausible but not certain is
+ * worth *announcing* — the agent can then decide to read it — while paying a
+ * fraction of the tokens a snippet costs. Qoder's `model_decision` rules make
+ * the same trade: inject the route, not the payload.
+ */
+export function renderIndex(
+  hits: RecallHit[],
+  opts: { maxChars?: number; heading?: string } = {},
+): string {
+  const maxChars = opts.maxChars ?? 1600;
+  if (hits.length === 0) return '';
+  const parts: string[] = [opts.heading ?? '## Possibly relevant pages (titles only)', ''];
+  let used = parts.join('\n').length;
+  let shown = 0;
+  for (const hit of hits) {
+    const summary = truncate(hit.summary, 80);
+    const line = `- \`${hit.path}\` — ${hit.title}${summary ? `: ${summary}` : ''}`;
+    if (used + line.length > maxChars) break;
+    used += line.length + 1;
+    parts.push(line);
+    shown++;
+  }
+  if (shown === 0) return '';
+  parts.push('');
+  parts.push('Read one with the kb tool if it looks relevant; do not assume the summary is complete.');
+  return parts.join('\n');
+}
+
+/**
+ * Split hits into the two on-demand tiers.
+ *
+ * The most relevant few get excerpts; the long tail gets announced only. Both
+ * counts come from config so a token-tight setup can set the first tier to 1.
+ */
+export function tierHits(hits: RecallHit[], snippetCount: number): {
+  detailed: RecallHit[];
+  outline: RecallHit[];
+} {
+  const n = Math.max(0, snippetCount);
+  return { detailed: hits.slice(0, n), outline: hits.slice(n) };
+}
+
 export function indexStats(index: KbIndex): { pages: number; bytes: number } {
   let bytes = 0;
   const pages = Object.keys(index.entries).length;
   for (const e of Object.values(index.entries)) bytes += e.size;
   return { pages, bytes };
+}
+
+/**
+ * Pages that declare they apply to a file now being read or edited.
+ *
+ * Prompt-based recall cannot see this: the agent may open `src/api/handler.ts`
+ * without ever saying "api" in the prompt. A page can route itself to a path via
+ * `paths: ["src/api/**"]` in front matter, and this is what the file-access hook
+ * consults. Ordering is by score so the most specific page leads.
+ */
+export function recallByPath(
+  store: KbStore,
+  filePath: string,
+  opts: { limit?: number; cwd?: string } = {},
+): RecallHit[] {
+  const index = store.loadIndex();
+  const memoryPrefix = store.memoryRelDir();
+  const relFile = repoRelative(filePath, opts.cwd ?? process.cwd(), store.cfg.kbRoot);
+  const out: RecallHit[] = [];
+
+  for (const entry of Object.values(index.entries)) {
+    const rel = entry.path;
+    if (rel.split('/').includes('_archive')) continue;
+    if (memoryPrefix !== '' && (rel === memoryPrefix || rel.startsWith(memoryPrefix + '/'))) continue;
+    const patterns = entry.meta.frontmatter.paths;
+    if (!patterns || patterns.length === 0) continue;
+    if (!matchAnyGlob(patterns, relFile)) continue;
+    // A longer matching pattern is a more specific claim on the file.
+    const specificity = Math.max(...patterns.filter((p) => matchGlob(p, relFile)).map((p) => p.length));
+    out.push({
+      path: rel,
+      title: entry.meta.frontmatter.title,
+      summary: entry.meta.frontmatter.summary,
+      tags: entry.meta.frontmatter.tags,
+      score: round(1 + specificity / 100),
+      snippets: extractSnippets(entry.meta.text, uniqueTokens(path.basename(relFile))),
+      isIndex: path.posix.basename(rel) === 'index.md',
+    });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, opts.limit ?? 3);
+}
+
+/**
+ * A project-relative posix path for glob matching.
+ *
+ * This is a *best effort*: the KB lives inside the project, so the project root
+ * is the KB root's parent unless configured otherwise. Absolute paths outside the
+ * project are returned unchanged, which makes every pattern miss rather than
+ * match something surprising.
+ */
+function repoRelative(filePath: string, cwd: string, kbRoot: string): string {
+  const projectRoot = path.dirname(kbRoot);
+  const abs = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath);
+  const rel = path.relative(projectRoot, abs);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return filePath.replace(/\\/g, '/');
+  return rel.split(path.sep).join('/');
 }

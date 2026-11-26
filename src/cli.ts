@@ -81,6 +81,7 @@ const BOOLEAN_FLAGS = new Set([
   '--dry-run',
   '--force',
   '--apply',
+  '--flush',
   '--global',
   '--reset',
   '--help',
@@ -189,6 +190,28 @@ function cmdRecall(args: string[]): void {
     return;
   }
   out(context);
+}
+
+/**
+ * Which pages does this file route to?
+ *
+ * The file-access hook is invisible otherwise — it prints into the agent's
+ * context, not the terminal — so this is the way to test `paths:` front matter
+ * by hand.
+ */
+function cmdPathRecall(args: string[]): void {
+  const pos = positionals(args);
+  const file = pos[0];
+  if (!file) fail('usage: kb path-recall <file>');
+  const e = engine(process.cwd());
+  const hits = e.pathRecall(file);
+  if (hits.length === 0) {
+    out(`No page routes to ${file}.`);
+    out('Add `paths: ["<glob>"]` to a page\'s front matter to make it follow that file.');
+    return;
+  }
+  out(`## Pages that apply to \`${file}\``);
+  for (const h of hits) out(`- ${h.path} — ${h.title}`);
 }
 
 function cmdNote(args: string[]): void {
@@ -406,10 +429,31 @@ function cmdStats(): void {
 
 function cmdSummary(args: string[]): void {
   const e = engine(process.cwd());
+  if (flag(args, '--flush')) {
+    out(e.flushSession().text);
+    return;
+  }
   const dry = flag(args, '--dry-run');
   const result = e.endSession({ cwd: process.cwd(), dryRun: dry });
   out(result.report);
   if (dry) out('\n(dry run: nothing was written)');
+}
+
+/**
+ * Move memory entries that have outgrown memory onto pages.
+ *
+ * The always-injected store is the most expensive text in the system, so an
+ * entry that grew into a procedure should leave it. Dry run by default, like
+ * every other restructuring command.
+ */
+function cmdPromoteMemory(args: string[]): void {
+  const e = engine(process.cwd());
+  const min = option(args, '--min-chars');
+  const { text } = e.promoteMemory({
+    apply: flag(args, '--apply'),
+    ...(min ? { minChars: Number(min) } : {}),
+  });
+  out(text);
 }
 
 function cmdHook(args: string[]): Promise<void> {
@@ -444,6 +488,22 @@ function cmdHook(args: string[]): Promise<void> {
           if (text) process.stdout.write(text + '\n');
           break;
         }
+        case 'file': {
+          // Optional per-harness gate: cheap to skip when the harness has no
+          // file hook, and the path-recall switch lives in config.
+          if (!event.filePath) break;
+          const res = e.onFileAccess(event.harness, event.filePath, event.cwd);
+          const text = adapter.formatOutput(event, { context: res.context });
+          if (text) process.stdout.write(text + '\n');
+          break;
+        }
+        case 'compact': {
+          // Settle before the harness throws the detail away. Printing here is
+          // deliberately suppressed by every adapter that maps this event.
+          const res = e.flushSession();
+          if (process.env['KB_HOOK_VERBOSE'] === '1') out(res.text);
+          break;
+        }
         case 'note': {
           if (event.note) e.addManualConclusions([event.note]);
           break;
@@ -472,7 +532,17 @@ function cmdHook(args: string[]): Promise<void> {
 
 function fallbackEvent(harness: HarnessId, eventName: string): KbHookEvent {
   const kind: KbHookEvent['kind'] =
-    eventName === 'start' ? 'start' : eventName === 'prompt' ? 'prompt' : eventName === 'end' ? 'end' : 'stop';
+    eventName === 'start'
+      ? 'start'
+      : eventName === 'prompt'
+        ? 'prompt'
+        : eventName === 'file'
+          ? 'file'
+          : eventName === 'compact'
+            ? 'compact'
+            : eventName === 'end'
+              ? 'end'
+              : 'stop';
   return { kind, harness, cwd: process.cwd(), raw: {} };
 }
 
@@ -507,11 +577,15 @@ usage: kb <command> [options]
   install [harness…]   Install hook/MCP/rules integration for harnesses
                        (claude-code, codex, qoder, workbuddy, trae, dsh, generic)
   recall "<query>"     Search the wiki (--json, --limit N)
+  path-recall <file>   Which pages route to this file (their paths: front matter)
   note "<fact>"        Record one settled conclusion
                        (--page <path> | --supersedes "<old text>")
   memory [memory|user] Show the always-injected memory
                        (--add "<text>" | --remove "<text>" | --patch "<old>=> <new>")
   summary              Distil the session that just ended (--dry-run)
+                       (--flush: settle what is settled now, keep the session open)
+  promote-memory       Move memory entries that outgrew memory onto a page
+                       (--apply, --min-chars N) — dry run by default
   compress [page]      Compress pages over the size budget
   evolve               Promotion / supersession / decay pass (--min-occurrences, --cold-after-days)
   curate [--apply]     Consolidate narrow pages into umbrella pages (dry run by default)
@@ -544,6 +618,8 @@ function main(): void {
     case 'recall':
     case 'search':
       return cmdRecall(args);
+    case 'path-recall':
+      return cmdPathRecall(args);
     case 'note':
     case 'add':
       return cmdNote(args);
@@ -553,6 +629,8 @@ function main(): void {
     case 'stop':
     case 'end':
       return cmdSummary(args);
+    case 'promote-memory':
+      return cmdPromoteMemory(args);
     case 'compress':
       return cmdCompress(args);
     case 'evolve':

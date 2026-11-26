@@ -111,6 +111,7 @@ function normaliseFrontmatter(
     confidence: asConfidence(raw['confidence']),
     ...(asString(raw['absorbedInto']) ? { absorbedInto: asString(raw['absorbedInto']) } : {}),
     ...(asString(raw['derivedFrom']) ? { derivedFrom: asString(raw['derivedFrom']) } : {}),
+    ...(asStringArray(raw['paths']).length > 0 ? { paths: asStringArray(raw['paths']) } : {}),
   };
 }
 
@@ -231,6 +232,7 @@ export function frontmatterToMap(fm: DocFrontmatter): Record<string, string | nu
     confidence: fm.confidence,
     ...(fm.absorbedInto ? { absorbedInto: fm.absorbedInto } : {}),
     ...(fm.derivedFrom ? { derivedFrom: fm.derivedFrom } : {}),
+    ...(fm.paths && fm.paths.length > 0 ? { paths: fm.paths } : {}),
   };
 }
 
