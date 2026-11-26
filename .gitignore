@@ -2,6 +2,10 @@ node_modules/
 dist/
 *.log
 
+# editor state
+.idea/
+.vscode/
+
 # runtime state: sessions, index cache, stats, locks, quarantine
 .kb/
 

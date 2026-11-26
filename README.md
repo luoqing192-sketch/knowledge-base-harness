@@ -58,6 +58,10 @@
 
 ## 安装
 
+逐 harness 的完整安装、验证、日常用法和排障见 **[docs/SOP-五个-Agent-安装与使用.md](docs/SOP-五个-Agent-安装与使用.md)**（Claude Code / Codex / Qoder / WorkBuddy / Trae + dsh，含实跑输出）。
+
+速览：
+
 ```bash
 npm install          # 只装 tsc / vitest
 npm run build
