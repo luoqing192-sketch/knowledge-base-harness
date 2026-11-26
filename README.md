@@ -129,6 +129,14 @@ DSH.md                       规则文件，告诉 agent 先查 wiki
 
 dsh 没有 MCP，所以只有规则文件 + 钩子脚本。**首次使用必须先跑一次** `bash .dsh/hooks/kb-prompt.sh < payload.json` 确认 stdin/stdout 契约和你这个 dsh 版本对得上——不同版本的事件名可能不一样，`parsePayload` 已经做了 `sessionStart / userPromptSubmit / agentStop / sessionEnd` 的别名归一化。
 
+> **从旧名字升级**：早期版本叫 `knowlege-base-harness`（少一个 d），marker 块和安装路径都用旧名。改回 `knowledge-base-harness` 之后，旧 marker 块不会被识别，重装前请先删掉：
+>
+> ```bash
+> grep -rn ">>> knowlege-base-harness >>>" ~/.claude ~/.codex "%CODEX_HOME%" . 2>/dev/null
+> ```
+>
+> 手工删除对应块（`>>> knowlege-base-harness >>>` 到 `<<< knowlege-base-harness <<<` 之间），再跑 `kb install`。本机上检查过，目前没有残留。
+
 装完之后 `kb.config.json` 决定 wiki 与运行时目录位置，默认：
 
 ```
@@ -147,7 +155,7 @@ dsh 没有 MCP，所以只有规则文件 + 钩子脚本。**首次使用必须�
 | 命令 | 作用 |
 |---|---|
 | `kb init` | 建骨架（含 memory 目录），幂等 |
-| `kb install [harness…]` | 写 hooks / MCP / 规则文件，按 marker 块幂等合并 |
+| `kb install [harness…]` | 写 hooks / MCP / 规则文件，按 marker 块幂等合并（`--global` 装到用户级） |
 | `kb recall "<问题>"` | 检索（`--json`、`--limit N`） |
 | `kb note "<结论>"` | 手写一条结论（`--page`、`--supersedes "<旧文本>"`） |
 | `kb memory [memory\|user]` | 常驻记忆读写（`--add` / `--remove` / `--patch "<旧>=> <新>"`，可重复） |
