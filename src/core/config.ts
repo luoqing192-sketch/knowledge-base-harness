@@ -88,7 +88,7 @@ export function loadConfig(cwd: string, overrides: Partial<KbConfig> = {}): KbCo
   const candidates = [
     path.join(cwd, CONFIG_FILE),
     path.join(projectRoot, CONFIG_FILE),
-    path.join(os.homedir(), '.knowlege-base-harness', CONFIG_FILE),
+    path.join(os.homedir(), '.knowledge-base-harness', CONFIG_FILE),
   ];
   let fileCfg: Partial<KbConfig> = {};
   for (const file of candidates) {

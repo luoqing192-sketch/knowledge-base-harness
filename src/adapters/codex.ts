@@ -49,7 +49,7 @@ export const codexAdapter: HarnessAdapter = {
 
     const toml = [
       `# >>> ${KB_MARKER} >>>`,
-      `# Managed by knowlege-base-harness. Regenerate with: kb install codex`,
+      `# Managed by knowledge-base-harness. Regenerate with: kb install codex`,
       '',
       // TOML attaches every following key to the most recent table header, so
       // top-level keys MUST come before the `[mcp_servers...]` tables. Putting

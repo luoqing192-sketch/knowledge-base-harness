@@ -139,7 +139,7 @@ function dedupeSnippets(items: string[]): string[] {
 export function renderRecall(hits: RecallHit[], opts: { maxChars?: number } = {}): string {
   const maxChars = opts.maxChars ?? 4000;
   if (hits.length === 0) return '';
-  const parts: string[] = ['## Knowledge base hits (from knowlege-base-harness)', ''];
+  const parts: string[] = ['## Knowledge base hits (from knowledge-base-harness)', ''];
   let used = parts.join('\n').length;
   hits.forEach((hit, i) => {
     const block: string[] = [];

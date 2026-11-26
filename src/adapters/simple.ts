@@ -67,7 +67,7 @@ export function makeAdapter(spec: SimpleAdapterSpec): HarnessAdapter {
       // writing into an arbitrary project's AGENTS.md from a global command
       // would surprise the user. These harnesses look for rules under `rules/`.
       const rulesPath = global
-        ? path.join(base, 'rules', 'knowlege-base-harness.md')
+        ? path.join(base, 'rules', 'knowledge-base-harness.md')
         : path.join(ctx.projectRoot, spec.rulesFile);
 
       // A hook manifest in our own namespace: documented for humans and usable

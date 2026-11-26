@@ -84,7 +84,7 @@ describe('claude-code adapter', () => {
     const commands = settings.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command));
     expect(commands).toContain('echo mine');
     // Installed twice, but the kb hook appears exactly once.
-    expect(commands.filter((c) => c.includes('knowlege-base-harness') || c.includes('cli.js')).length).toBe(1);
+    expect(commands.filter((c) => c.includes('knowledge-base-harness') || c.includes('cli.js')).length).toBe(1);
     expect(settings.permissions.allow).toEqual(['Bash(ls)']);
   });
 
@@ -125,7 +125,7 @@ describe('codex adapter', () => {
     for (const a of artifacts) applyArtifact(a);
     const toml = fs.readFileSync(path.join(sb.root, '.codex', 'config.toml'), 'utf8');
     expect(toml).toContain('[mcp_servers.kb]');
-    expect(toml).toContain('>>> knowlege-base-harness >>>');
+    expect(toml).toContain('>>> knowledge-base-harness >>>');
     // Codex reads the global config; the project-level file is ignored.
   });
 
@@ -182,14 +182,14 @@ describe('artifact removal', () => {
     const artifact = {
       path: file,
       strategy: 'text-append' as const,
-      content: '<!-- >>> knowlege-base-harness >>> -->\nblock\n<!-- <<< knowlege-base-harness <<< -->\n',
-      marker: 'knowlege-base-harness',
+      content: '<!-- >>> knowledge-base-harness >>> -->\nblock\n<!-- <<< knowledge-base-harness <<< -->\n',
+      marker: 'knowledge-base-harness',
     };
     applyArtifact(artifact);
     expect(fs.readFileSync(file, 'utf8')).toContain('keep me');
     expect(removeArtifact(file)).toBe(true);
     const after = fs.readFileSync(file, 'utf8');
     expect(after).toContain('keep me');
-    expect(after).not.toContain('knowlege-base-harness');
+    expect(after).not.toContain('knowledge-base-harness');
   });
 });

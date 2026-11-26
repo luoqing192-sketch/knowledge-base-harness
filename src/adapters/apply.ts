@@ -60,7 +60,7 @@ function applyWrite(a: InstallArtifact, existing: string | null): AppliedArtifac
 }
 
 function applyAppend(a: InstallArtifact, existing: string | null): AppliedArtifact {
-  const marker = a.marker ?? 'knowlege-base-harness';
+  const marker = a.marker ?? 'knowledge-base-harness';
   const begin = `>>> ${marker} >>>`;
   const end = `<<< ${marker} <<<`;
 
@@ -130,7 +130,7 @@ function applyJsonMerge(a: InstallArtifact, existing: string | null): AppliedArt
     const currentHooks = (current['hooks'] ?? {}) as Record<string, unknown[]>;
     for (const [event, entries] of Object.entries(mineHooks)) {
       const list = Array.isArray(currentHooks[event]) ? currentHooks[event] : [];
-      const filtered = list.filter((entry) => !JSON.stringify(entry).includes('knowlege-base-harness'));
+      const filtered = list.filter((entry) => !JSON.stringify(entry).includes('knowledge-base-harness'));
       const next = [...filtered, ...entries];
       if (JSON.stringify(next) !== JSON.stringify(list)) changed = true;
       currentHooks[event] = next;
@@ -164,12 +164,12 @@ function applyJsonMerge(a: InstallArtifact, existing: string | null): AppliedArt
 }
 
 /** True when the file already carries our marker block. */
-export function hasMarker(file: string, marker = 'knowlege-base-harness'): boolean {
+export function hasMarker(file: string, marker = 'knowledge-base-harness'): boolean {
   const raw = readIfExists(file);
   return raw !== null && raw.includes(marker);
 }
 
-export function removeArtifact(file: string, marker = 'knowlege-base-harness'): boolean {
+export function removeArtifact(file: string, marker = 'knowledge-base-harness'): boolean {
   const raw = readIfExists(file);
   if (raw === null) return false;
   const begin = `>>> ${marker} >>>`;

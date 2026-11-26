@@ -1,4 +1,4 @@
-# knowlege-base-harness
+# knowledge-base-harness
 
 个人知识库，以 **markdown wiki** 的形态存在，由 agent harness 的插件体系自动维护。
 
@@ -72,7 +72,7 @@ kb install --global     # 装到用户级配置：所有项目共用同一份知
 不 `npm link` 也能用，把 `kb` 换成 `node <仓库路径>/dist/cli.js` 即可——hook 命令里写的是绝对路径，跟 PATH 无关：
 
 ```bash
-node /path/to/knowlege-base-harness/dist/cli.js init
+node /path/to/knowledge-base-harness/dist/cli.js init
 ```
 
 ### 三个 harness 的实际安装结果
@@ -99,7 +99,7 @@ node /path/to/knowlege-base-harness/dist/cli.js init
 写入的块（`notify` 必须在所有 table header **之前**，TOML 会把后面的 key 归到上一个 header 下）：
 
 ```toml
-# >>> knowlege-base-harness >>>
+# >>> knowledge-base-harness >>>
 notify = ["…node.exe", "…cli.js", "hook", "codex", "stop"]
 
 [mcp_servers.kb]
@@ -109,7 +109,7 @@ args = ["…cli.js", "mcp"]
 [mcp_servers.kb.env]
 KB_ROOT = "…/knowledge"
 KB_DATA_DIR = "…/.kb"
-# <<< knowlege-base-harness <<<
+# <<< knowledge-base-harness <<<
 ```
 
 装完 `codex mcp list` 应该能看到 `kb`。Codex 没有 per-prompt hook，所以**召回走 MCP**（agent 调 `kb_query`），`notify` 只在回合结束时触发蒸馏。
@@ -118,7 +118,7 @@ KB_DATA_DIR = "…/.kb"
 
 ```
 .dsh/
-├── knowlege-base-harness.hooks.json   钩子清单（把命令接到 dsh 自己的 hook 设置里）
+├── knowledge-base-harness.hooks.json   钩子清单（把命令接到 dsh 自己的 hook 设置里）
 └── hooks/
     ├── kb-start.sh          exec node …/cli.js hook dsh start
     ├── kb-prompt.sh         stdin 读 payload，stdout 吐注入文本

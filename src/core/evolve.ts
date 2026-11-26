@@ -307,7 +307,7 @@ export function promoteToPlaybook(
       },
       titleLine: `# 打法：${candidate.theme}`,
       preamble: [
-        '由 knowlege-base-harness 自动提升：同一做法在多个页面重复出现，说明它是可复用的流程而非单点事实。',
+        '由 knowledge-base-harness 自动提升：同一做法在多个页面重复出现，说明它是可复用的流程而非单点事实。',
       ],
       sections: [
         { heading: SECTION_CONCLUSIONS, depth: 2, lines: [] },
@@ -421,7 +421,7 @@ export function evolveAfterSession(
 }
 
 export function renderEvolutionReport(report: EvolutionReport): string {
-  const lines: string[] = ['knowlege-base-harness: evolution pass'];
+  const lines: string[] = ['knowledge-base-harness: evolution pass'];
   if (report.promotions.length > 0) {
     lines.push(`  promoted ${report.promotions.length} playbook(s):`);
     for (const p of report.promotions) {

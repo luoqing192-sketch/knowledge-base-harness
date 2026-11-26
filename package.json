@@ -1,5 +1,5 @@
 {
-  "name": "knowlege-base-harness",
+  "name": "knowledge-base-harness",
   "version": "0.1.0",
   "private": true,
   "description": "Personal wiki-style knowledge base managed through agent-harness plugins (Claude Code / Codex / Qoder / WorkBuddy / Trae / dsh).",
@@ -31,7 +31,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/luoqing192-sketch/knowlege-base-harness.git"
+    "url": "https://github.com/luoqing192-sketch/knowledge-base-harness.git"
   },
   "keywords": [
     "knowledge-base",

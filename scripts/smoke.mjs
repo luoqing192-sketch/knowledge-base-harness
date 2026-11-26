@@ -85,7 +85,7 @@ check(
 );
 check(
   'global install writes user-level trae rules',
-  fs.existsSync(path.join(globalHome, '.trae', 'rules', 'knowlege-base-harness.md')),
+  fs.existsSync(path.join(globalHome, '.trae', 'rules', 'knowledge-base-harness.md')),
   globalInstall.out,
 );
 check(

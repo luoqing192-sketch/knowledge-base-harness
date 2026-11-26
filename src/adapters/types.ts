@@ -94,7 +94,7 @@ export interface InstallOptions {
   home?: string;
 }
 
-export const KB_MARKER = 'knowlege-base-harness';
+export const KB_MARKER = 'knowledge-base-harness';
 
 /** Absolute command line for `kb <args>` that works regardless of cwd. */
 export function hookCommand(ctx: AdapterContext, harness: HarnessId, event: string): string {

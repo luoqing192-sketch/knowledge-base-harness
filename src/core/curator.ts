@@ -432,7 +432,7 @@ export function applyPlans(store: KbStore, plans: ConsolidationPlan[]): AppliedC
 
 export function renderCuratorReport(report: CuratorReport, applied: boolean): string {
   const lines: string[] = [];
-  lines.push(`knowlege-base-harness: curator — ${report.considered} narrow page(s) considered`);
+  lines.push(`knowledge-base-harness: curator — ${report.considered} narrow page(s) considered`);
   if (report.plans.length === 0) {
     lines.push('  nothing worth consolidating');
   }

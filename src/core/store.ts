@@ -125,7 +125,7 @@ export class KbStore {
           },
           titleLine: '# Knowledge Base',
           preamble: [
-            'Personal knowledge base maintained by knowlege-base-harness. Structure is strictly hierarchical:',
+            'Personal knowledge base maintained by knowledge-base-harness. Structure is strictly hierarchical:',
             'each folder holds an `index.md` linking its children, and leaf pages hold settled conclusions only.',
           ],
           sections: [],

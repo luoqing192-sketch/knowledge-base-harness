@@ -509,7 +509,7 @@ export class KbEngine {
       }
     }
 
-    const lines: string[] = [`knowlege-base-harness: demote — ${candidates.length} page(s) with heavy details`];
+    const lines: string[] = [`knowledge-base-harness: demote — ${candidates.length} page(s) with heavy details`];
     if (candidates.length === 0) {
       lines.push(`  nothing above minDetailChars=${opts.minDetailChars ?? DEFAULT_DEMOTE.minDetailChars}`);
     }
@@ -624,7 +624,7 @@ function renderEndReport(input: {
 }): string {
   const lines: string[] = [];
   const touch = input.summary?.pagesTouched ?? [];
-  lines.push(`knowlege-base-harness: session ${input.sessionId} closed`);
+  lines.push(`knowledge-base-harness: session ${input.sessionId} closed`);
   lines.push(`  conclusions kept: ${input.accepted.length}`);
   if (input.dropped.length > 0) lines.push(`  conclusions dropped: ${input.dropped.length}`);
   if (touch.length > 0) {

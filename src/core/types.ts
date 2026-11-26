@@ -1,5 +1,5 @@
 /**
- * Core domain types for knowlege-base-harness.
+ * Core domain types for knowledge-base-harness.
  *
  * The knowledge base itself is *only* markdown files laid out as a wiki tree.
  * Everything else (session logs, caches, locks, quarantined junk) lives in the

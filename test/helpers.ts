@@ -14,7 +14,7 @@ export interface Sandbox {
 
 /** Create a throwaway project with its own KB + data dirs. */
 export function sandbox(overrides: Partial<KbConfig> = {}): Sandbox {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowlege-base-harness-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowledge-base-harness-test-'));
   const kbRoot = path.join(root, 'knowledge');
   const dataDir = path.join(root, '.kb');
   const cfg: KbConfig = {
