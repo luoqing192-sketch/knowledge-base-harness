@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type ParsedDoc, type RecallHit } from './types.js';
+import { type MemoryTarget, type ParsedDoc, type RecallHit } from './types.js';
 import { KbStore } from './store.js';
+import { type MemoryStore } from './memory.js';
 import { readIfExists, ensureDir, writeAtomic } from './fsx.js';
 import {
   SECTION_CONCLUSIONS,
@@ -344,7 +345,55 @@ export function promoteToPlaybook(
   return rel;
 }
 
-// -------------------------------------------------------------------- decay
+// ------------------------------------------------------- memory promotion
+
+export interface MemoryPromotionCandidate {
+  target: MemoryTarget;
+  text: string;
+  /** Why this entry no longer belongs in the always-injected store. */
+  reason: string;
+  chars: number;
+}
+
+/**
+ * Memory entries that have outgrown memory.
+ *
+ * Always-injected memory is the most expensive text in the system: every turn
+ * pays for it, forever. A one-line fact earns that; a procedure or a paragraph
+ * of context does not — it should be a page, retrievable when relevant. This is
+ * the reverse of `findPromotionCandidates` (page → playbook): the missing step
+ * between "a fact I keep repeating" and "a topic worth a page".
+ *
+ * Candidacy is deliberately conservative:
+ *  - procedural wording (run / configure / first / then …), or
+ *  - long enough that it is clearly more than a fact (>= 80 chars).
+ * Both are advisory: `kb promote-memory` only proposes, and the caller decides.
+ */
+export function findPromotableMemory(
+  memory: MemoryStore,
+  opts: { minChars?: number } = {},
+): MemoryPromotionCandidate[] {
+  const minChars = opts.minChars ?? 80;
+  const out: MemoryPromotionCandidate[] = [];
+  for (const target of ['memory', 'user'] as const) {
+    const view = memory.read(target);
+    for (const entry of view.entries) {
+      const chars = entry.text.length;
+      const procedural = PROCEDURAL.test(entry.text);
+      if (!procedural && chars < minChars) continue;
+      // A bare fact with a path or version still fits memory; require some
+      // substance before proposing a page.
+      if (chars < 24) continue;
+      out.push({
+        target,
+        text: entry.text,
+        reason: procedural ? 'reads like a procedure, not a fact' : `${chars} chars — too long to inject every turn`,
+        chars,
+      });
+    }
+  }
+  return out.sort((a, b) => b.chars - a.chars);
+}
 
 export interface DecayOptions {
   /** Days without recall before a page is considered cold. */
