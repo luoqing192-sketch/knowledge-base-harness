@@ -27,6 +27,8 @@ export function applyArtifact(artifact: InstallArtifact): AppliedArtifact {
     case 'text-append':
     case 'toml-append':
       return applyAppend(artifact, existing);
+    case 'toml-root-insert':
+      return applyRootInsert(artifact, existing);
   }
 }
 
@@ -95,6 +97,53 @@ function lineStart(s: string, idx: number): number {
 function lineEnd(s: string, idx: number): number {
   const nl = s.indexOf('\n', idx);
   return nl < 0 ? s.length : nl + 1;
+}
+
+/**
+ * Insert the marker block at the top of the file, replacing any existing one.
+ *
+ * TOML has no root-table escape: keys after a `[table]` header belong to that
+ * table, so a top-level key must physically precede every header. That makes
+ * "append" wrong for a file that already has tables — `notify` silently becomes
+ * `<last table>.notify` and the harness reports
+ * `invalid type: sequence, expected a string`.
+ *
+ * Valid TOML always lists root-level keys before the first header, so putting
+ * our block at offset 0 is safe for any file that already parses.
+ */
+function applyRootInsert(a: InstallArtifact, existing: string | null): AppliedArtifact {
+  const marker = a.marker ?? 'knowledge-base-harness';
+  const begin = `>>> ${marker} >>>`;
+  const end = `<<< ${marker} <<<`;
+
+  const strip = (text: string): string | null => {
+    const b = text.indexOf(begin);
+    if (b < 0) return null;
+    const e = text.indexOf(end, b);
+    if (e < 0) return null;
+    return text.slice(0, lineStart(text, b)) + text.slice(lineEnd(text, e + end.length));
+  };
+
+  if (existing === null) {
+    writeAtomic(a.path, a.content);
+    return { path: a.path, action: 'created', note: a.note };
+  }
+
+  const without = strip(existing);
+  const hadBlock = without !== null;
+  // Trim, then re-add exactly one trailing newline: trimming it away made every
+  // reinstall differ from the previous run by one byte, so the install never
+  // reported "unchanged".
+  const rest = (without ?? existing).replace(/^\s+/, '').replace(/\s+$/, '');
+  const next = a.content + (rest === '' ? '' : '\n' + rest + '\n');
+  if (next === existing) return { path: a.path, action: 'unchanged' };
+
+  writeAtomic(a.path, next);
+  return {
+    path: a.path,
+    action: hadBlock ? 'merged' : 'appended',
+    note: hadBlock ? 'marker block moved to the top of the file' : a.note,
+  };
 }
 
 function applyJsonMerge(a: InstallArtifact, existing: string | null): AppliedArtifact {

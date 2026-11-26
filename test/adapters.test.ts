@@ -139,6 +139,85 @@ describe('codex adapter', () => {
     expect(agents.match(/## Knowledge base/g)).toHaveLength(1);
   });
 
+  // TOML has no root-table escape: a key after any `[table]` header belongs to
+  // that table. Codex reads `notify` as a string, so an appended block turned
+  // our array into `notice.model_migrations.notify` and codex refused to start:
+  //   invalid type: sequence, expected a string
+  it('keeps top-level keys above every table header', () => {
+    const configPath = path.join(sb.root, '.codex', 'config.toml');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, 'model = "gpt-6.1-terra"\n\ndisable_response_storage = true\n\n[notice]\nhide_world_writable_warning = true\n\n[notice.model_migrations]\n"gpt-5.6-sol" = "gpt-6-sol"\n');
+
+    for (const a of getAdapter('codex').artifacts(ctx, { home: sb.root })) applyArtifact(a);
+
+    const lines = fs.readFileSync(configPath, 'utf8').split('\n');
+    const notifyLine = lines.findIndex((l) => l.startsWith('notify = ['));
+    const firstHeader = lines.findIndex((l) => l.startsWith('['));
+    expect(notifyLine).toBeGreaterThanOrEqual(0);
+    expect(firstHeader).toBeGreaterThanOrEqual(0);
+    expect(notifyLine).toBeLessThan(firstHeader);
+
+    // The table block must sit at EOF: a trailing `[table]` header absorbs every
+    // root-level key after it, which is how `disable_response_storage = true`
+    // once ended up as `mcp_servers.kb.env.disable_response_storage`.
+    const lastContent = lines.filter((l) => l.trim() !== '').at(-1);
+    expect(lastContent).toBe('# <<< knowledge-base-harness-mcp <<<');
+    const envHeader = lines.indexOf('[mcp_servers.kb.env]');
+    const rootKey = lines.findIndex((l) => l.startsWith('disable_response_storage'));
+    expect(rootKey).toBeGreaterThanOrEqual(0);
+    expect(rootKey).toBeLessThan(envHeader);
+
+    // User content survives, and a second run does not stack blocks.
+    expect(lines.join('\n')).toContain('"gpt-5.6-sol" = "gpt-6-sol"');
+    for (const a of getAdapter('codex').artifacts(ctx, { home: sb.root })) applyArtifact(a);
+    const again = fs.readFileSync(configPath, 'utf8');
+    expect(again).toBe(lines.join('\n'));
+    expect(again.match(/>>> knowledge-base-harness >>>/g)).toHaveLength(1);
+    expect(again.match(/^notify = \[/gm)).toHaveLength(1);
+  });
+
+  it('migrates the old single-block install, which was appended at EOF', () => {
+    const configPath = path.join(sb.root, '.codex', 'config.toml');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    // What v0.1.0 wrote: one block, appended after the user's tables.
+    fs.writeFileSync(
+      configPath,
+      [
+        'model = "gpt-6.1-terra"',
+        '',
+        '[notice.model_migrations]',
+        '"gpt-5.6-sol" = "gpt-6-sol"',
+        '',
+        '# >>> knowledge-base-harness >>>',
+        '# Managed by knowledge-base-harness. Regenerate with: kb install codex',
+        '',
+        'notify = ["old-node", "old-cli", "hook", "codex", "stop"]',
+        '',
+        '[mcp_servers.kb]',
+        'command = "old-node"',
+        'args = ["old-cli", "mcp"]',
+        '',
+        '[mcp_servers.kb.env]',
+        'KB_ROOT = "old-kb"',
+        'KB_DATA_DIR = "old-data"',
+        '# <<< knowledge-base-harness <<<',
+        '',
+      ].join('\n'),
+    );
+
+    for (const a of getAdapter('codex').artifacts(ctx, { home: sb.root })) applyArtifact(a);
+
+    const text = fs.readFileSync(configPath, 'utf8');
+    expect(text).not.toContain('old-node');
+    expect(text).not.toContain('old-kb');
+    expect(text).toContain('"gpt-5.6-sol" = "gpt-6-sol"');
+    const lines = text.split('\n');
+    expect(lines.findIndex((l) => l.startsWith('notify = ['))).toBeLessThan(
+      lines.findIndex((l) => l.startsWith('[')),
+    );
+    expect(lines.filter((l) => l.trim() !== '').at(-1)).toBe('# <<< knowledge-base-harness-mcp <<<');
+  });
+
   it('parses turn-complete notifications', () => {
     expect(getAdapter('codex').parsePayload(CODEX_TURN_COMPLETE)?.kind).toBe('stop');
   });

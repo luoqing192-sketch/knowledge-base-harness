@@ -116,12 +116,16 @@ node /path/to/knowledge-base-harness/dist/cli.js init
 
 > 实测 codex-cli 0.163.0 **不读**项目级 `.codex/config.toml`——`codex mcp list` 在项目目录下看不到里面的 server。所以默认写全局，`--scope project` 只是留给以后版本。
 
-写入的块（`notify` 必须在所有 table header **之前**，TOML 会把后面的 key 归到上一个 header 下）：
+写入**两个**块，位置不同，marker 也不同——TOML 没有回到根表的语法，一个块描述不了文件里的两个位置：
 
 ```toml
-# >>> knowledge-base-harness >>>
+# >>> knowledge-base-harness >>>       ← 文件最顶部，在任何 [table] 之前
 notify = ["…node.exe", "…cli.js", "hook", "codex", "stop"]
+# <<< knowledge-base-harness <<<
+```
 
+```toml
+# >>> knowledge-base-harness-mcp >>>   ← 文件末尾
 [mcp_servers.kb]
 command = "…node.exe"
 args = ["…cli.js", "mcp"]
@@ -129,8 +133,19 @@ args = ["…cli.js", "mcp"]
 [mcp_servers.kb.env]
 KB_ROOT = "…/knowledge"
 KB_DATA_DIR = "…/.kb"
-# <<< knowledge-base-harness <<<
+# <<< knowledge-base-harness-mcp <<<
 ```
+
+> **为什么分成两块**：TOML 里 key 归属于它**上面最近的** table header，而且没有回到根表的写法。
+>
+> - `notify` 是**顶层** key，必须是数组。写在任何 `[table]` 之后就会变成那张表的 key——最早就是追加到文件末尾，落在 `[notice.model_migrations]` 下面，codex 直接拒绝启动：
+>   ```
+>   invalid type: sequence, expected a string
+>   in `notice.model_migrations.notify`
+>   ```
+> - 反过来，一个以 `[mcp_servers.kb.env]` 结尾的块如果插在文件中间，会把它**后面**的顶层 key 全吞进这张表。实测把整块挪到顶部后，紧随其后的 `disable_response_storage = true` 被读成 `mcp_servers.kb.env.disable_response_storage`，报的是同一类错：`invalid type: boolean true, expected a string`。
+>
+> 所以：**无 header 的顶层 key 放最上面，table 块放最末尾**，两边都贴着文件边界，谁也不会污染谁。
 
 装完 `codex mcp list` 应该能看到 `kb`。Codex 没有 per-prompt hook，所以**召回走 MCP**（agent 调 `kb_query`），`notify` 只在回合结束时触发蒸馏。
 

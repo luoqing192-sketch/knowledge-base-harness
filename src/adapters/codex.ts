@@ -19,9 +19,16 @@ import {
  *  - It **ignores** a project-level `.codex/config.toml` for `mcp_servers`
  *    (`codex mcp list` shows nothing there), so installing into the repo alone
  *    is a no-op.
- *  - `notify` is a *top-level* key. TOML binds keys to the most recent table
- *    header, so placing it after `[mcp_servers.kb.env]` makes it
- *    `mcp_servers.kb.env.notify` and Codex fails to start.
+ *  - `notify` is a *top-level* key, and TOML cannot return to the root table:
+ *    every key after a `[table]` header belongs to that table. Appending the
+ *    block after `[notice.model_migrations]` made Codex read it as
+ *    `notice.model_migrations.notify` — a sequence where a string was expected —
+ *    and it refused to boot with "failed to load bootstrap configuration".
+ *    Conversely, a block that *ends* with a table header absorbs whatever
+ *    root-level keys follow it: that turned `disable_response_storage = true`
+ *    into `mcp_servers.kb.env.disable_response_storage`.
+ *    So the two halves are written separately: `notify` goes in a header-free
+ *    block at the top of the file, the `[mcp_servers.kb]` tables go at the end.
  *  - There is no per-prompt hook, so recall happens through the MCP server.
  *
  * The AGENTS.md instruction block is the part that works everywhere; the TOML
@@ -47,15 +54,25 @@ export const codexAdapter: HarnessAdapter = {
       (opts.scope === 'project' ? path.join(ctx.projectRoot, '.codex') : globalDir);
     const effective = path.join(base, 'config.toml');
 
-    const toml = [
+    const notifyBlock = [
       `# >>> ${KB_MARKER} >>>`,
       `# Managed by knowledge-base-harness. Regenerate with: kb install codex`,
       '',
-      // TOML attaches every following key to the most recent table header, so
-      // top-level keys MUST come before the `[mcp_servers...]` tables. Putting
-      // `notify` after them parses it as `mcp_servers.kb.env.notify` and Codex
-      // refuses to start.
+      // A table-free block that sits above every header in the file. TOML has
+      // no root-table escape, so a top-level key can only exist before the
+      // first `[...]`.
       `notify = [${tomlString(ctx.nodeBin)}, ${tomlString(ctx.cliEntry)}, "hook", "codex", "stop"]`,
+      `# <<< ${KB_MARKER} <<<`,
+      '',
+    ].join('\n');
+
+    // Tables must come *after* the user's root-level keys, and a block that
+    // ends with a table header swallows everything after it — so this block is
+    // appended at EOF, where nothing follows. It carries its own marker: one
+    // marker cannot describe two separate positions in the file.
+    const mcpBlock = [
+      `# >>> ${KB_MARKER}-mcp >>>`,
+      `# Managed by knowledge-base-harness. Regenerate with: kb install codex`,
       '',
       '[mcp_servers.kb]',
       `command = ${tomlString(ctx.nodeBin)}`,
@@ -64,17 +81,24 @@ export const codexAdapter: HarnessAdapter = {
       '[mcp_servers.kb.env]',
       `KB_ROOT = ${tomlString(ctx.kbRoot)}`,
       `KB_DATA_DIR = ${tomlString(ctx.dataDir)}`,
-      `# <<< ${KB_MARKER} <<<`,
+      `# <<< ${KB_MARKER}-mcp <<<`,
       '',
     ].join('\n');
 
     const out: InstallArtifact[] = [
       {
         path: effective,
-        strategy: 'toml-append',
-        content: toml,
+        strategy: 'toml-root-insert',
+        content: notifyBlock,
         marker: KB_MARKER,
-        note: `Registers the kb MCP server and a turn-completion notify command in ${effective}`,
+        note: `Installs the turn-completion notify command at the top of ${effective}`,
+      },
+      {
+        path: effective,
+        strategy: 'toml-append',
+        content: mcpBlock,
+        marker: `${KB_MARKER}-mcp`,
+        note: `Registers the kb MCP server in ${effective}`,
       },
     ];
 

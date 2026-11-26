@@ -28,7 +28,21 @@ export interface AdapterContext {
   dataDir: string;
 }
 
-export type ArtifactStrategy = 'json-merge' | 'text-append' | 'toml-append' | 'write' | 'command';
+export type ArtifactStrategy =
+  | 'json-merge'
+  | 'text-append'
+  | 'toml-append'
+  /**
+   * Marker block inserted *before the file's first table header*, so its
+   * top-level keys stay top-level.
+   *
+   * TOML has no way to return to the root table, so a `notify = [...]` appended
+   * after `[notice.model_migrations]` silently becomes
+   * `notice.model_migrations.notify` and the harness refuses to start.
+   */
+  | 'toml-root-insert'
+  | 'write'
+  | 'command';
 
 export interface InstallArtifact {
   /** Absolute path of the file to create or patch. */

@@ -284,13 +284,23 @@ kb install codex
 | `$CODEX_HOME/config.toml` | MCP server + `notify`（回合结束） |
 | `AGENTS.md`（项目根） | 给 agent 的指令块 |
 
-生成的 TOML（实跑原文）：
+生成的 TOML（实跑原文，两块，marker 不同）：
+
+文件**最顶部**：
 
 ```toml
 # >>> knowledge-base-harness >>>
 # Managed by knowledge-base-harness. Regenerate with: kb install codex
 
 notify = ["C:\\Program Files\\nodejs\\node.exe", "…\\cli.js", "hook", "codex", "stop"]
+# <<< knowledge-base-harness <<<
+```
+
+文件**最末尾**：
+
+```toml
+# >>> knowledge-base-harness-mcp >>>
+# Managed by knowledge-base-harness. Regenerate with: kb install codex
 
 [mcp_servers.kb]
 command = "C:\\Program Files\\nodejs\\node.exe"
@@ -299,14 +309,17 @@ args = ["…\\cli.js", "mcp"]
 [mcp_servers.kb.env]
 KB_ROOT = "…\\knowledge"
 KB_DATA_DIR = "…\\.kb"
-# <<< knowledge-base-harness <<<
+# <<< knowledge-base-harness-mcp <<<
 ```
 
-**`notify` 为什么排在所有 table header 之前**：TOML 把 key 归到最近的表头下。放到 `[mcp_servers.kb.env]` 之后会变成 `mcp_servers.kb.env.notify`，Codex 直接启动失败并报：
+**为什么必须拆成两块**：TOML 的 key 归属于它上面最近的 table header，而且**没有回到根表的语法**，所以一个块没法同时表达「顶部顶层 key」和「末尾 table」。
 
-```
-invalid type: sequence, expected a string in `mcp_servers.kb.env.notify`
-```
+- `notify` 是顶层 key（数组）。整块追加到文件末尾时，它落在 `[notice.model_migrations]` 下面，codex 启动即失败：
+  ```
+  invalid type: sequence, expected a string
+  in `notice.model_migrations.notify`
+  ```
+- 只把整块挪到顶部也不对：以 `[mcp_servers.kb.env]` 结尾的块会把**后面**的顶层 key 吞进这张表。实测紧随其后的 `disable_response_storage = true` 变成 `mcp_servers.kb.env.disable_response_storage`，报 `invalid type: boolean \`true\`, expected a string`。
 
 **能力说明**
 
@@ -782,7 +795,8 @@ knowledge-base-harness: promote-memory — 1 entry(s) outgrew memory
 # 删除 settings.json 中 marker 块内的钩子条目，删除 .mcp.json 中的 kb
 
 # Codex
-# 删除 $CODEX_HOME/config.toml 中 >>> ... <<< 之间的块
+# 删除 $CODEX_HOME/config.toml 中两个 marker 块（顶部的 knowledge-base-harness
+# 与末尾的 knowledge-base-harness-mcp）
 
 # 其他
 rm -rf .workbuddy .trae .dsh WORKBUDDY.md DSH.md
