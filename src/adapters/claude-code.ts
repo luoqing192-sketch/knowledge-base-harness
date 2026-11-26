@@ -73,20 +73,24 @@ export const claudeCodeAdapter: HarnessAdapter = {
           path: 'claude mcp (user scope)',
           strategy: 'command',
           content: '',
+          // Verified against claude 2.1.332: the server name comes immediately
+          // after `add`, `-e` is variadic so each env var needs its own flag
+          // *after* the name, and Windows paths must use forward slashes or
+          // they lose their backslashes in the round trip.
           argv: [
             'claude',
             'mcp',
             'add',
             '--scope',
             'user',
-            '-e',
-            `KB_ROOT=${ctx.kbRoot}`,
-            '-e',
-            `KB_DATA_DIR=${ctx.dataDir}`,
             'kb',
+            '-e',
+            `KB_ROOT=${toForwardSlashes(ctx.kbRoot)}`,
+            '-e',
+            `KB_DATA_DIR=${toForwardSlashes(ctx.dataDir)}`,
             '--',
             ctx.nodeBin,
-            ctx.cliEntry,
+            toForwardSlashes(ctx.cliEntry),
             'mcp',
           ],
           note: 'Registers the kb MCP server for every project (`claude mcp list` to check).',
@@ -155,4 +159,12 @@ export function mcpEntry(ctx: AdapterContext) {
     args: [ctx.cliEntry, 'mcp'],
     env: { KB_ROOT: ctx.kbRoot, KB_DATA_DIR: ctx.dataDir },
   };
+}
+
+/**
+ * Windows paths survive `claude mcp add` only in forward-slash form; passing
+ * backslashes through its arg parser strips them (`D:\a\b` → `D:ab`).
+ */
+export function toForwardSlashes(p: string): string {
+  return p.replace(/\\/g, '/');
 }
