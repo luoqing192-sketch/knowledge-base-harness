@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import { KbEngine } from '../src/core/engine.js';
-import { recall, renderRecall } from '../src/core/recall.js';
+import { recall, renderRecall, extractSnippets } from '../src/core/recall.js';
 import { lintKb } from '../src/core/lint.js';
 import { USER_PROMPT } from './fixtures.js';
 import { listMarkdown, readPage, sandbox, topicFiles, type Sandbox } from './helpers.js';
@@ -93,6 +93,23 @@ describe('recall', () => {
     sb.engine.onPrompt('claude-code', USER_PROMPT, sb.root);
     const stats = sb.engine.stats.load();
     expect(Object.keys(stats.pages).length).toBeGreaterThan(0);
+  });
+});
+
+describe('extractSnippets', () => {
+  // The index text starts with the bare title, which is a substring of the
+  // conclusion bullet below it. The shorter one used to win by arriving first,
+  // so the injected context lost the actual fact.
+  it('keeps the longer wording when the title duplicates the conclusion', () => {
+    const pageText = [
+      'SSO 网关的超时是 30 秒',
+      '确认了：SSO 网关的超时是 30 秒，超过会返回 504 (commit abc1234)',
+      '## 结论',
+      '- 确认了：SSO 网关的超时是 30 秒，超过会返回 504 (commit abc1234)',
+    ].join('\n');
+    const snippets = extractSnippets(pageText, ['sso']);
+    expect(snippets).toHaveLength(1);
+    expect(snippets[0]).toContain('超过会返回 504');
   });
 });
 

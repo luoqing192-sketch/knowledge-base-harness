@@ -129,8 +129,14 @@ export function extractSnippets(text: string, qtokens: string[], max = 3): strin
 function dedupeSnippets(items: string[]): string[] {
   const out: string[] = [];
   for (const item of items) {
-    if (out.some((o) => o.includes(item) || item.includes(o))) continue;
-    out.push(item);
+    const dup = out.findIndex((o) => o.includes(item) || item.includes(o));
+    // A heading often restates the first bullet. Keep the longer wording — it
+    // is the one that carries the fact, not just its title.
+    if (dup === -1) {
+      out.push(item);
+    } else if (item.length > out[dup]!.length) {
+      out[dup] = item;
+    }
   }
   return out;
 }
