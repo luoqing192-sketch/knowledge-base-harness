@@ -54,7 +54,7 @@ describe('claude-code adapter', () => {
       fs.readFileSync(path.join(sb.root, '.claude', 'settings.json'), 'utf8'),
     ) as { hooks: Record<string, unknown[]> };
     expect(Object.keys(settings.hooks).sort()).toEqual(
-      ['SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit'].sort(),
+      ['PostToolUse', 'PreCompact', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit'].sort(),
     );
 
     const mcp = JSON.parse(fs.readFileSync(path.join(sb.root, '.mcp.json'), 'utf8')) as {
@@ -145,7 +145,7 @@ describe('codex adapter', () => {
 });
 
 describe('instruction-only adapters', () => {
-  for (const id of ['qoder', 'workbuddy', 'trae'] as const) {
+  for (const id of ['workbuddy', 'trae'] as const) {
     it(`${id} writes rules and a hook manifest`, () => {
       const adapter = getAdapter(id);
       for (const a of adapter.artifacts(ctx, {})) applyArtifact(a);
@@ -162,6 +162,69 @@ describe('instruction-only adapters', () => {
       expect(event?.harness).toBe(id);
     });
   }
+});
+
+describe('qoder adapter', () => {
+  // Qoder CLI documents a hook contract of its own, so this adapter is no
+  // longer "write a rules file and hope": it installs real hooks.
+  it('installs hooks into .qoder/settings.json', () => {
+    for (const a of getAdapter('qoder').artifacts(ctx, {})) applyArtifact(a);
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(sb.root, '.qoder', 'settings.json'), 'utf8'),
+    ) as { hooks: Record<string, unknown[]> };
+    expect(Object.keys(settings.hooks).sort()).toEqual(
+      ['PreCompact', 'PostToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit'].sort(),
+    );
+  });
+
+  it('registers MCP at the project-level .mcp.json', () => {
+    for (const a of getAdapter('qoder').artifacts(ctx, {})) applyArtifact(a);
+    const mcp = JSON.parse(fs.readFileSync(path.join(sb.root, '.mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, { args: string[] }>;
+    };
+    expect(mcp.mcpServers.kb!.args).toEqual([ctx.cliEntry, 'mcp']);
+  });
+
+  it('parses the documented payload shapes', () => {
+    const adapter = getAdapter('qoder');
+    expect(adapter.parsePayload({ hook_event_name: 'SessionStart', cwd: '/' })?.kind).toBe('start');
+    const prompt = adapter.parsePayload({ hook_event_name: 'UserPromptSubmit', prompt: '库存扣减在哪' });
+    expect(prompt?.kind).toBe('prompt');
+    expect(prompt?.prompt).toBe('库存扣减在哪');
+    expect(adapter.parsePayload({ hook_event_name: 'PreCompact', trigger: 'auto' })?.kind).toBe('compact');
+    expect(adapter.parsePayload({ hook_event_name: 'SessionEnd', reason: 'logout' })?.kind).toBe('end');
+    expect(adapter.parsePayload({ hook_event_name: 'PreToolUse', tool_name: 'Bash' })).toBeNull();
+  });
+
+  it('turns a PostToolUse file event into a file event', () => {
+    const event = getAdapter('qoder').parsePayload({
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Read',
+      tool_input: { file_path: 'src/api/handler.ts' },
+    });
+    expect(event?.kind).toBe('file');
+    expect(event?.filePath).toBe('src/api/handler.ts');
+  });
+
+  it('returns additionalContext for prompts and file events, but not for compaction', () => {
+    const adapter = getAdapter('qoder');
+    const promptOut = adapter.formatOutput(
+      { kind: 'prompt', harness: 'qoder', cwd: '.', raw: {} },
+      { context: 'ctx' },
+    );
+    expect(JSON.parse(promptOut).hookSpecificOutput.additionalContext).toBe('ctx');
+
+    const fileOut = adapter.formatOutput(
+      { kind: 'file', harness: 'qoder', cwd: '.', filePath: 'a.ts', raw: {} },
+      { context: 'ctx' },
+    );
+    expect(JSON.parse(fileOut).hookSpecificOutput.hookEventName).toBe('PostToolUse');
+
+    // PreCompact stdout means "instructions for the summary", so nothing may go out.
+    expect(
+      adapter.formatOutput({ kind: 'compact', harness: 'qoder', cwd: '.', raw: {} }, { context: 'ctx' }),
+    ).toBe('');
+  });
 });
 
 describe('dsh adapter', () => {

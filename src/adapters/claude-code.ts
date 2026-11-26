@@ -50,8 +50,15 @@ export const claudeCodeAdapter: HarnessAdapter = {
 
     const settings = {
       hooks: {
-        SessionStart: [{ matcher: 'startup|resume|clear', hooks: [hook('start')] }],
+        SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [hook('start')] }],
         UserPromptSubmit: [{ hooks: [hook('prompt')] }],
+        // Path-scoped knowledge: a page with `paths: ["src/api/**"]` in its
+        // front matter is pushed the moment the agent reads or writes a
+        // matching file, instead of waiting for the prompt to name it.
+        PostToolUse: [{ matcher: 'Read|Write|Edit|MultiEdit', hooks: [hook('file')] }],
+        // Compaction is exactly when a long session loses detail, so settle
+        // conclusions before it happens rather than only at SessionEnd.
+        PreCompact: [{ hooks: [hook('compact')] }],
         Stop: [{ hooks: [hook('stop')] }],
         SessionEnd: [{ matcher: 'clear|logout|prompt_input_exit|other', hooks: [hook('end')] }],
       },
@@ -63,7 +70,7 @@ export const claudeCodeAdapter: HarnessAdapter = {
         strategy: 'json-merge',
         content: JSON.stringify(settings, null, 2),
         marker: KB_MARKER,
-        note: 'Adds SessionStart / UserPromptSubmit / Stop / SessionEnd hooks.',
+        note: 'Adds SessionStart / UserPromptSubmit / PostToolUse / PreCompact / Stop / SessionEnd hooks.',
       },
     ];
 
@@ -128,6 +135,17 @@ export const claudeCodeAdapter: HarnessAdapter = {
           prompt: str(o, 'prompt') ?? '',
           raw,
         };
+      case 'PostToolUse': {
+        const input = obj(o['tool_input']);
+        const filePath =
+          str(input, 'file_path') ?? str(input, 'path') ?? str(input, 'notebook_path');
+        if (!filePath) return null;
+        return { kind: 'file', harness: 'claude-code', cwd, transcriptPath, sessionId, filePath, raw };
+      }
+      case 'PreCompact':
+        // Settle conclusions now: compaction is about to drop the detail that
+        // the end-of-session pass would otherwise distil from.
+        return { kind: 'compact', harness: 'claude-code', cwd, transcriptPath, sessionId, raw };
       case 'Stop':
         return { kind: 'stop', harness: 'claude-code', cwd, transcriptPath, sessionId, raw };
       case 'SessionEnd':
@@ -138,15 +156,21 @@ export const claudeCodeAdapter: HarnessAdapter = {
   },
 
   formatOutput(event, body): string {
-    if (event.kind === 'prompt' || event.kind === 'start') {
+    // PreCompact stdout becomes instructions for the summary, so never print a
+    // knowledge dump there.
+    if (event.kind === 'compact') return '';
+    if (event.kind === 'prompt' || event.kind === 'start' || event.kind === 'file') {
       if (!body.context) return '';
       // additionalContext is the documented channel; plain stdout also works,
       // but the explicit form survives future changes to default behaviour.
+      const hookEventName =
+        event.kind === 'file'
+          ? 'PostToolUse'
+          : event.kind === 'prompt'
+            ? 'UserPromptSubmit'
+            : 'SessionStart';
       return JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: event.kind === 'prompt' ? 'UserPromptSubmit' : 'SessionStart',
-          additionalContext: body.context,
-        },
+        hookSpecificOutput: { hookEventName, additionalContext: body.context },
       });
     }
     return '';

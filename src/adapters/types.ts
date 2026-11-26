@@ -4,7 +4,7 @@ export type { HarnessId };
 
 /** Normalised hook event, produced by every adapter from its own payload shape. */
 export interface KbHookEvent {
-  kind: 'start' | 'prompt' | 'stop' | 'end' | 'note';
+  kind: 'start' | 'prompt' | 'stop' | 'end' | 'note' | 'file' | 'compact';
   harness: HarnessId;
   cwd: string;
   prompt?: string;
@@ -12,6 +12,8 @@ export interface KbHookEvent {
   sessionId?: string;
   /** Free-form conclusion passed by an agent calling the note hook. */
   note?: string;
+  /** Absolute or project-relative path of the file the agent just touched. */
+  filePath?: string;
   raw: unknown;
 }
 

@@ -169,7 +169,13 @@ function rulesBlock(spec: SimpleAdapterSpec, ctx: AdapterContext): string {
     'and an on-demand tree of topic pages.',
     '',
     '- **Before answering anything about this project**, query the wiki:',
-    `  \`node "${ctx.cliEntry}" recall "<the user's question>"\` or the \`kb\` MCP tool.`,
+    `  \`node "${ctx.cliEntry}" recall "<the user's question>"\` or the \`kb_query\` MCP tool.`,
+    '  Use `kb_index` first when you only need to know what exists — it lists titles',
+    '  and summaries without paying for page bodies.',
+    '- **Before editing a source file**, ask whether the wiki has a page for that',
+    '  area. A page can scope itself to paths with `paths: ["src/api/**"]` in its',
+    '  front matter; if you have the `kb_index` tool, a query on the file path',
+    '  will surface it.',
     '- **When a conclusion is settled** (verified, decided, reproduced), record it:',
     `  \`node "${ctx.cliEntry}" note "<one-sentence conclusion>"\`.`,
     '  Add `--supersedes "<old text>"` when it replaces an earlier conclusion.',
@@ -182,19 +188,6 @@ function rulesBlock(spec: SimpleAdapterSpec, ctx: AdapterContext): string {
     '',
   ].join('\n');
 }
-
-/**
- * Qoder — Alibaba's agent IDE (VS Code fork). It reads project rules from
- * `.qoder/rules/*.md` and supports MCP through `.mcp.json`.
- */
-export const qoderAdapter = makeAdapter({
-  id: 'qoder',
-  displayName: 'Qoder',
-  configDir: '.qoder',
-  rulesFile: '.qoder/rules/knowledge-base.md',
-  mcpFile: '.mcp.json',
-  events: ['start', 'prompt', 'stop', 'end'],
-});
 
 /**
  * WorkBuddy — workspace-oriented agent with a `.workbuddy` config folder and

@@ -1,9 +1,9 @@
 import { claudeCodeAdapter } from './claude-code.js';
 import { codexAdapter } from './codex.js';
+import { qoderAdapter } from './qoder.js';
 import {
   dshAdapter,
   genericAdapter,
-  qoderAdapter,
   traeAdapter,
   workbuddyAdapter,
 } from './simple.js';
