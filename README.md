@@ -61,17 +61,18 @@
 ```bash
 npm install          # 只装 tsc / vitest
 npm run build
+npm link             # 把 kb 挂到 PATH，下面的命令都靠它
 
-node dist/cli.js init                 # 建 wiki 根 + 运行时目录 + kb.config.json
-node dist/cli.js install              # 给全部 harness 装集成
-node dist/cli.js install claude-code  # 只装一个
-node dist/cli.js install --global     # 装到用户级配置：所有项目共用同一份知识库
+kb init                 # 建 wiki 根 + 运行时目录 + kb.config.json
+kb install              # 给全部 harness 装集成
+kb install claude-code  # 只装一个
+kb install --global     # 装到用户级配置：所有项目共用同一份知识库
 ```
 
-建议把 `kb` 挂到 PATH，这样 hook 命令和手敲都短：
+不 `npm link` 也能用，把 `kb` 换成 `node <仓库路径>/dist/cli.js` 即可——hook 命令里写的是绝对路径，跟 PATH 无关：
 
 ```bash
-npm link            # 之后可以直接 kb init / kb install / kb recall
+node /path/to/knowlege-base-harness/dist/cli.js init
 ```
 
 ### 三个 harness 的实际安装结果
